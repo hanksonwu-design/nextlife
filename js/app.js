@@ -1,6 +1,7 @@
 // 畫面層:只負責顯示與操作,數值都交給 engine.js
 import * as E from './engine.js';
 import { pickPack } from './packs/index.js';
+import * as SND from './audio.js';
 
 const app = document.getElementById('app');
 const toastEl = document.getElementById('toast');
@@ -107,6 +108,25 @@ const buzz = (ms) => {
   } catch { /* 不支援震動的裝置略過 */ }
 };
 
+// 彩帶:成功、拿到成就、走到結局時從畫面上方灑下來
+function burst(n = 26) {
+  if (reduced) return;
+  const colors = ['#ffb703', '#fb5607', '#3a86ff', '#06d6a0', '#ff5d8f', '#8338ec'];
+  const box = document.createElement('div');
+  box.className = 'confetti';
+  box.setAttribute('aria-hidden', 'true');
+  box.innerHTML = Array.from({ length: n }, (_, i) => {
+    const x = Math.round(Math.random() * 100);
+    const dx = Math.round(Math.random() * 120 - 60);
+    const d = (0.9 + Math.random() * 0.9).toFixed(2);
+    const delay = (Math.random() * 0.35).toFixed(2);
+    const r = Math.round(Math.random() * 720 - 360);
+    return `<i style="left:${x}%;background:${colors[i % colors.length]};--dx:${dx}px;--r:${r}deg;animation-duration:${d}s;animation-delay:${delay}s"></i>`;
+  }).join('');
+  document.body.appendChild(box);
+  setTimeout(() => box.remove(), 2400);
+}
+
 function toast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.add('show');
@@ -119,6 +139,9 @@ function render() {
   window.scrollTo(0, 0);
   animate();
   if (view === 'fate') runFate();
+  if (view === 'play' && s && s.last && app.querySelector('.ach')) {
+    setTimeout(() => { SND.sfx('achieve'); burst(18); }, 450);
+  }
 }
 
 // 數值條從舊值滑到新值,數字從舊值跳到新值
@@ -228,6 +251,7 @@ const VIEWS = {
           <button class="btn" data-act="album" style="text-align:center">${U.meta.open}</button>
         </section>` : ''}
         <button class="btn ghost" data-act="sources" style="text-align:center">${U.sources.open}</button>
+        <button class="btn ghost" data-act="policy" style="text-align:center">${U.policy.open}</button>
         <p class="small muted">${U.home.privacy}</p>
       </div>
     </div>`;
@@ -402,6 +426,19 @@ const VIEWS = {
     <p class="small muted">${R.privacy}</p>
     <button class="btn primary" data-act="home">${R.back}</button>
     <button class="btn ghost" data-act="untrack" style="text-align:center">${R.remove}</button>`;
+  },
+
+  // 隱私權政策:資料只存在裝置上,並提供一鍵清除
+  policy() {
+    const Y = U.policy;
+    return `<h2>${Y.title}</h2>
+    <p class="muted small">${Y.updated}</p>
+    ${Y.sections.map(([h, items]) => `<section class="panel stack">
+      <h3>${h}</h3>
+      <ul class="plain">${items.map((x) => `<li>${x}</li>`).join('')}</ul>
+    </section>`).join('')}
+    <button class="btn ghost" data-act="wipe" style="text-align:center">${Y.wipe}</button>
+    <button class="btn primary" data-act="home">${Y.back}</button>`;
   },
 
   // 資料來源:每個數字的出處與期間,以及還沒有統計依據的項目
@@ -1053,6 +1090,7 @@ async function playRoll(r) {
     dice.classList.add('rolling');
     for (let k = 0; k < 9; k++) {
       dice.innerHTML = pips(1 + Math.floor(Math.random() * 6));
+      SND.sfx('dice');
       await sleep(80);
     }
     dice.classList.remove('rolling');
@@ -1064,6 +1102,7 @@ async function playRoll(r) {
     const [x, y] = tileXY((r.from + k) % E.BOARD.length);
     token.style.setProperty('--x', x);
     token.style.setProperty('--y', y);
+    SND.sfx('hop');
     if (!reduced) {
       token.classList.remove('hop');
       void token.offsetWidth; // 重新觸發跳躍動畫
@@ -1078,6 +1117,7 @@ async function playRoll(r) {
   btn.disabled = false;
   btn.dataset.act = 'flip';
   btn.textContent = U.board.flip;
+  SND.sfx('land');
   buzz(30);
 }
 
@@ -1091,7 +1131,11 @@ function runFate() {
     if (!v || !v.hidden) return;
     v.hidden = false;
     b.hidden = false;
-    buzz(s.last.outcome.find((l) => l.roll).roll.ok ? 30 : [40, 60, 40]);
+    const ok = s.last.outcome.find((l) => l.roll).roll.ok;
+    SND.sfx(ok ? 'win' : 'lose');
+    if (ok) burst();
+    else document.body.classList.add('shake'), setTimeout(() => document.body.classList.remove('shake'), 500);
+    buzz(ok ? 30 : [40, 60, 40]);
   };
   if (reduced) return done();
   app.querySelector('.needle').addEventListener('animationend', done, { once: true });
@@ -1100,6 +1144,7 @@ function runFate() {
 
 // 每年開始時的過場:「第 N 年 · X 歲」
 function yearIntro() {
+  SND.sfx('year');
   if (reduced) return;
   const o = document.createElement('div');
   o.className = 'yearintro';
@@ -1181,6 +1226,15 @@ const ACTIONS = {
     render();
   },
   sources() { view = 'sources'; render(); },
+  policy() { view = 'policy'; render(); },
+  // 清掉這個 App 存在裝置上的所有東西,然後重新載入
+  wipe() {
+    if (!window.confirm(U.policy.wipeConfirm)) return;
+    try {
+      Object.keys(localStorage).filter((k) => k.startsWith('nextlife.')).forEach((k) => localStorage.removeItem(k));
+    } catch { /* 無法存取儲存空間時,本來就沒有資料 */ }
+    location.reload();
+  },
   new() {
     draft = { ...P.form.defaults, talent: '' };
     formError = '';
@@ -1199,6 +1253,7 @@ const ACTIONS = {
       quiz.result = Q.score(quiz.answers);
       view = 'quizResult';
     }
+    SND.sfx(view === 'quizResult' ? 'reveal' : 'tick');
     buzz(10);
     render();
   },
@@ -1223,6 +1278,7 @@ const ACTIONS = {
       quiz = null;
       view = 'forecast';
       save();
+      SND.sfx('reveal');
       return render();
     } else {
       s[quiz.id] = quiz.result;
@@ -1242,12 +1298,14 @@ const ACTIONS = {
     });
     document.getElementById('plansum').innerHTML = planSummary();
     document.getElementById('planbtn').textContent = planPicks.length ? U.plan.confirmGo : U.plan.confirmRest;
+    SND.sfx('tick');
     buzz(10);
   },
   planDone() {
     E.planYear(s, planPicks);
     planPicks = [];
     save();
+    SND.sfx('confirm');
     buzz(20);
     view = 'board';
     render();
@@ -1257,18 +1315,31 @@ const ACTIONS = {
     save(); // 先存檔:就算動畫播到一半關掉,回來也會直接看到這張事件卡
     playRoll(r);
   },
-  flip() { view = 'play'; render(); },
+  flip() { SND.sfx('flip'); view = 'play'; render(); },
   choose({ i }) {
+    const netBefore = E.netWorth(s);
     const r = E.choose(s, +i);
     save();
     buzz(10);
     view = r.outcome.some((l) => l.roll) ? 'fate' : 'play';
+    // 不用擲命運的選項:依這一年淨資產變多或變少給不同的聲音(要擲命運的,等指針停下來再出聲)
+    if (view === 'play') SND.sfx(E.netWorth(s) >= netBefore ? 'coin' : 'down');
+    else SND.sfx('tap');
     render();
   },
   reveal() { view = 'play'; render(); },
   next() {
     s.last = null;
-    if (E.isOver(s)) { view = 'end'; save(); render(); } else beginTurn();
+    if (E.isOver(s)) {
+      view = 'end';
+      save();
+      render();
+      SND.sfx('fanfare');
+      burst(40);
+    } else {
+      SND.sfx('tap');
+      beginTurn();
+    }
   },
   reroll() {
     if (s.rerolls <= 0) return toast(U.play.noReroll);
@@ -1302,8 +1373,33 @@ const ACTIONS = {
 
 app.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-act]');
-  if (b && !b.disabled) ACTIONS[b.dataset.act](b.dataset);
+  SND.unlock(); // 瀏覽器要等第一次點擊才允許出聲
+  if (!b || b.disabled) return;
+  if (!OWN_SOUND.has(b.dataset.act)) SND.sfx('tap');
+  ACTIONS[b.dataset.act](b.dataset);
 });
+// 這些操作自己會出聲,不再加一般的點擊聲
+const OWN_SOUND = new Set(['roll', 'flip', 'choose', 'pick', 'answer', 'planDone', 'next', 'quizDone', 'reveal']);
+
+// 聲音開關:固定在畫面右下角,按一下依序切換「音樂和音效 → 只有音效 → 靜音」
+const audioBtn = document.createElement('button');
+audioBtn.id = 'audiobtn';
+audioBtn.type = 'button';
+const AUDIO_ICON = { all: '🔊', sfx: '🔉', off: '🔇' };
+const showAudio = () => {
+  const m = SND.getMode();
+  audioBtn.textContent = AUDIO_ICON[m];
+  audioBtn.setAttribute('aria-label', `${U.audio.label}:${U.audio[m]}`);
+};
+audioBtn.addEventListener('click', () => {
+  const m = SND.cycleMode();
+  SND.unlock();
+  showAudio();
+  toast(U.audio[m]);
+  if (m !== 'off') SND.sfx('confirm');
+});
+showAudio();
+document.body.appendChild(audioBtn);
 
 // 回填表單:記下實際數字,並用最新數字重新推演往後十年
 function submitCheckin(f) {

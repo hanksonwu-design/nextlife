@@ -364,3 +364,27 @@ details summary { cursor: pointer; font-size: 14px; font-weight: 700; color: var
 ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
 .lines li span:first-child { text-align: left; }
 .lines li > .num { white-space: nowrap; flex-shrink: 0; }
+
+/* 聲音開關 */
+#audiobtn {
+  position: fixed; right: calc(12px + env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 15;
+  width: 42px; height: 42px; border-radius: 50%; border: 2px solid var(--line); background: var(--panel); color: var(--ink);
+  font-size: 19px; line-height: 1; cursor: pointer; opacity: 0.88; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.12);
+  display: grid; place-items: center; padding: 0;
+}
+#audiobtn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12); }
+#app { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+
+/* 彩帶 */
+.confetti { position: fixed; inset: 0; z-index: 30; pointer-events: none; overflow: hidden; }
+.confetti i { position: absolute; top: -14px; width: 9px; height: 14px; border-radius: 2px; animation: confetti-fall 1.4s cubic-bezier(0.2, 0.6, 0.4, 1) both; }
+@keyframes confetti-fall {
+  0% { transform: translate(0, 0) rotate(0); opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translate(var(--dx), 105vh) rotate(var(--r)); opacity: 0; }
+}
+/* 失敗時畫面輕輕晃一下 */
+body.shake #app { animation: shake 0.45s both; }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+@media (prefers-reduced-motion: reduce) { body.shake #app { animation: none; } }
+.home .sheet { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
