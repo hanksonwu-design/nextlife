@@ -26,6 +26,12 @@ export const TAX = {
   nhiDependentsMax: 3,
   nhi2Rate: 0.0211,
   lpCap: 15, // 勞退自願提繳不計入薪資所得,以月提繳工資上限 15 萬為限
+  // 小孩:115 年度起未成年子女的免稅額加五成;6 歲以下另有幼兒學前特別扣除額(第 1 名 15 萬、第 2 名起 22.5 萬)
+  minorExemption: 15.15,
+  minorUntil: 18,
+  preschoolUntil: 6, // 6 歲以下(含 6 歲)
+  preschoolFirst: 15,
+  preschoolNext: 22.5,
   // 軍公教:公保和退撫都用本俸計算,自付 35%
   pubBaseShare: 0.6, // 本俸占月薪的比例(設計值)
   pubOwnShare: 0.35,
@@ -49,7 +55,8 @@ export function incomeTax(net) {
 // 一年要扣掉多少。income:稅前月收入;bonus:全年年終;kids:小孩人數;self:勞退自願提繳率。
 // 簡化:只算本人的薪資(配偶各自申報)、小孩都算在自己名下、不算列舉扣除和其他特別扣除額。
 // 軍公教扣的是公保和退撫(pubSys:'db' 舊制或 'dc' 個人專戶制,沒給當成舊制;pubBase:本俸占月薪的比例)。
-export function deductions({ income, bonus = 0, industry, kids = 0, self = 0, pubSys = 'db', pubBase }) {
+// kidAges:每個小孩的年齡(有給的話,依年齡套用未成年免稅額與幼兒學前扣除額;沒給就每人都用一般免稅額)。
+export function deductions({ income, bonus = 0, industry, kids = 0, kidAges, self = 0, pubSys = 'db', pubBase }) {
   const X = TAX;
   const union = industry === 'free';
   let li;
@@ -64,7 +71,13 @@ export function deductions({ income, bonus = 0, industry, kids = 0, self = 0, pu
   const nhi = insured * X.nhiRate * (union ? X.nhiUnionShare : X.nhiShare) * heads * 12;
   const nhi2 = union ? 0 : Math.max(0, bonus - insured * 4) * X.nhi2Rate;
   const gross = income * 12 + bonus - Math.min(income, X.lpCap) * self * 12;
-  const net = gross - X.exemption * (1 + kids) - X.standard - Math.min(X.salaryDed, gross);
+  let kidOff = X.exemption * kids;
+  if (kidAges) {
+    const young = kidAges.filter((a) => a <= X.preschoolUntil).length;
+    kidOff = kidAges.reduce((sum, a) => sum + (a < X.minorUntil ? X.minorExemption : X.exemption), 0)
+      + (young > 0 ? X.preschoolFirst + (young - 1) * X.preschoolNext : 0);
+  }
+  const net = gross - X.exemption - kidOff - X.standard - Math.min(X.salaryDed, gross);
   const tax = incomeTax(Math.max(0, net));
   const insurance = li + nhi + nhi2;
   return { insurance, tax, total: insurance + tax };

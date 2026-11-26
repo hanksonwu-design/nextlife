@@ -477,6 +477,16 @@ export function settleYear(s) {
   if (bonus > 0) L.push({ text: T.bonus(bonusMonths.toFixed(1)), value: bonus });
   const spouseSalary = (s.spouse || 0) * 12;
   if (spouseSalary > 0) L.push({ text: T.spouseSalary(fmt(s.spouse)), value: spouseSalary });
+  // 小孩的年齡(舊存檔沒有這個欄位,當成今年出生)。育兒津貼:未滿一定年齡的小孩每月發,第幾名金額不同
+  if (!s.kidAges) s.kidAges = [];
+  while (s.kidAges.length < s.kids) s.kidAges.push(0);
+  let allowance = 0;
+  if (X.kidAllowance) {
+    s.kidAges.forEach((age, i) => {
+      if (age < X.kidAllowanceUntil) allowance += X.kidAllowance[Math.min(i, X.kidAllowance.length - 1)] * 12;
+    });
+    if (allowance > 0) L.push({ text: T.kidAllowance, value: allowance });
+  }
   L.push({ text: T.spend(fmt(s.expense)), value: -spend });
   if (s.loan) {
     loanPay = Math.min(s.loan.yearly, s.loan.balance * (1 + X.loanRate));
@@ -495,13 +505,13 @@ export function settleYear(s) {
   // 稅與社會保險:國家包有提供算法才扣(表單填的月收入是稅前)
   let withheld = 0;
   if (P.deductions) {
-    const d = P.deductions({ income: s.income, bonus, industry: s.industry, kids: s.kids });
+    const d = P.deductions({ income: s.income, bonus, industry: s.industry, kids: s.kids, kidAges: s.kidAges });
     // 配偶各自計稅、各自繳保費(小孩都算在本人名下)
     const sp = s.spouse > 0 ? P.deductions({ income: s.spouse, bonus: 0, industry: null, kids: 0 }) : { tax: 0, insurance: 0, total: 0 };
     withheld = d.total + sp.total;
     L.push({ text: T.deduct(fmt(d.tax + sp.tax), fmt(d.insurance + sp.insurance)), value: -withheld });
   }
-  const surplus = salary + bonus + spouseSalary - spend - loanPay - gifts - withheld;
+  const surplus = salary + bonus + spouseSalary + allowance - spend - loanPay - gifts - withheld;
 
   // 投資報酬
   // 理財功課:每一級讓平均報酬高一點;3 級起懂得分散,單年最多虧 20%
@@ -599,6 +609,7 @@ export function settleYear(s) {
 
   s.age += 1;
   s.turn += 1;
+  s.kidAges = s.kidAges.map((a) => a + 1);
   if (netWorth(s) < 0) s.flags.wasBroke = true;
   return { lines: L, notes: N, surplus, net: netWorth(s) };
 }
@@ -940,7 +951,9 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
       const bonus = s.income * ind.bonus * (0.6 + (0.8 * s.attrs.career) / 100);
       const selfPay = opts.self ? Math.min(s.income, opts.selfCap ?? Infinity) * opts.self * 12 : 0;
       const spouseNet = s.spouse > 0 ? s.spouse * 12 - (P.deductions ? P.deductions({ income: s.spouse, bonus: 0, industry: null, kids: 0 }).total : 0) : 0;
-      const withheld = P.deductions ? P.deductions({ income: s.income, bonus, industry: s.industry, kids: kidPay > 0 ? 1 : 0, self: opts.self || 0 }).total : 0;
+      const kidAge = kidPay > 0 ? t - 1 : -1; // 第二年出生,那一年算 0 歲
+      const allowance = kidAge >= 0 && X.kidAllowance && kidAge < X.kidAllowanceUntil ? X.kidAllowance[0] * 12 : 0;
+      const withheld = P.deductions ? P.deductions({ income: s.income, bonus, industry: s.industry, kids: kidAge >= 0 ? 1 : 0, kidAges: kidAge >= 0 ? [kidAge] : [], self: opts.self || 0 }).total : 0;
       let loanPay = 0;
       if (s.loan) {
         loanPay = Math.min(s.loan.yearly, s.loan.balance * (1 + X.loanRate));
@@ -948,7 +961,7 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
         s.loan.years -= 1;
         if (s.loan.years <= 0 || s.loan.balance < 0.5) s.loan = null;
       }
-      const surplus = s.income * 12 + bonus + spouseNet - s.expense * 12 - kidPay * 12 - loanPay - withheld - selfPay;
+      const surplus = s.income * 12 + bonus + spouseNet + allowance - s.expense * 12 - kidPay * 12 - loanPay - withheld - selfPay;
       if (s.house) s.houseValue *= 1 + X.houseGrowth;
       const base = hist ? hist[Math.floor(rand(s) * hist.length)] + shift : risk.mean + risk.sd * gauss(s);
       s.invest *= 1 + clamp(base, -0.45, 0.9);
