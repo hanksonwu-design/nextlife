@@ -356,3 +356,11 @@ details summary { cursor: pointer; font-size: 14px; font-weight: 700; color: var
 .labchart .band.base { opacity: .22; }
 .labchart .mid { stroke-dasharray: none; }
 .lines li span:last-child { text-align: right; }
+
+/* 退休金試算 */
+.stepper { display: inline-flex; align-items: center; gap: 10px; }
+.stepper button { font: inherit; font-weight: 700; font-size: 20px; width: 44px; height: 44px; border-radius: 12px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+.stepper b { min-width: 56px; text-align: center; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.lines li span:first-child { text-align: left; }
+.lines li > .num { white-space: nowrap; flex-shrink: 0; }

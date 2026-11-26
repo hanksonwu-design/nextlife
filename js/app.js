@@ -81,6 +81,7 @@ document.title = U.appName;
 let view = 'home';
 let draft = null;
 let advice = null; // { key, data }:財務建議的計算結果(依起點快取)
+let pen = null; // 退休金試算:{ from, years, self }
 let lab = null; // 組合試算:{ from, change: { expense, income, risk }, cache: {} }
 let quiz = null; // { id, i, answers, picks, result };picks 是每題選了第幾個選項(返回上一題時標出來)
 let formError = '';
@@ -230,6 +231,47 @@ const VIEWS = {
         <p class="small muted">${U.home.privacy}</p>
       </div>
     </div>`;
+  },
+
+  // 退休金試算:勞保年金 + 勞退專戶,可以調已工作年資和自願提繳
+  pension() {
+    const N = U.pension;
+    const p = P.pension(realProfile(), { years: pen.years, self: pen.self });
+    if (p.na) {
+      return `<h2>${N.title}</h2>
+      <section class="panel stack"><p>${N.naPublic}</p></section>
+      <button class="btn" data-act="penBack" style="text-align:center">${N.back}</button>`;
+    }
+    const seg = [0, 0.03, 0.06].map((v) => `<button class="${pen.self === v ? 'on' : ''}" data-act="penSelf" data-v="${v}" aria-pressed="${pen.self === v}">${N.selfOpt(v)}</button>`).join('');
+    return `<h2>${N.title}</h2>
+    <p class="muted small">${N.intro}</p>
+    <section class="panel stack ending">
+      <p class="muted small">${N.totalTitle}</p>
+      <div class="title range num">${N.range(E.fmt(p.lo.total), E.fmt(p.hi.total))}</div>
+      <p class="small muted">${N.rangeNote}</p>
+      <p><b>${N.replace(Math.round(p.lo.replace * 100), Math.round(p.hi.replace * 100), E.fmt(p.finalWage))}</b><br><span class="small muted">${N.replaceNote}</span></p>
+    </section>
+    <section class="panel stack">
+      <ul class="lines">
+        <li><span>${N.liRow}<br><span class="small muted">${N.liNote(E.fmt(p.liWage), Math.round(p.liYears))}</span></span><span class="num">${E.fmt(p.li)}</span></li>
+        <li><span>${N.lpRow}<br><span class="small muted">${N.lpNote(E.fmt(p.lo.account), E.fmt(p.hi.account), p.payYears)}</span></span><span class="num">${N.range(E.fmt(p.lo.lp), E.fmt(p.hi.lp))}</span></li>
+        ${p.hi.now > 0 ? `<li class="small muted"><span>${N.nowRow}</span><span class="num">${N.range(E.fmt(p.lo.now), E.fmt(p.hi.now))}</span></li>` : ''}
+        ${p.lo.at10 != null ? `<li class="small muted"><span>${N.at10Row}</span><span class="num">${N.range(E.fmt(p.lo.at10), E.fmt(p.hi.at10))}</span></li>` : ''}
+      </ul>
+      ${p.free ? `<p class="small muted">${N.freeNote}</p>` : ''}
+    </section>
+    <section class="panel stack">
+      <div class="row"><span>${N.yearsLabel}</span>
+        <span class="stepper"><button data-act="penYears" data-d="-1" aria-label="−1">−</button><b class="num">${N.yearsValue(p.worked)}</b><button data-act="penYears" data-d="1" aria-label="+1">+</button></span></div>
+      <div class="stack"><div class="small muted">${N.selfLabel}</div><div class="seg">${seg}</div></div>
+      ${pen.self > 0 ? `<p><b>${N.selfLine(E.fmt(p.selfCost), E.fmt(p.lo.extraMonthly), E.fmt(p.hi.extraMonthly))}</b></p><p class="small muted">${N.selfTax}</p>` : ''}
+    </section>
+    <section class="panel stack">
+      <h3>${N.caveatTitle}</h3>
+      <ul class="small muted plain">${N.caveats.map((c) => `<li>${c}</li>`).join('')}</ul>
+    </section>
+    <p class="small muted">${U.advice.disclaimer}</p>
+    <button class="btn" data-act="penBack" style="text-align:center">${N.back}</button>`;
   },
 
   // 組合試算:支出、收入、投資配置各選一檔,看十年後的範圍和現在的做法差多少
@@ -476,6 +518,7 @@ const VIEWS = {
     <p class="small muted">${F.note}</p>
     <button class="btn primary" data-act="begin">${F.start}</button>
     <button class="btn" data-act="lab" style="text-align:center">${U.advice.open}</button>
+    ${P.pension ? `<button class="btn" data-act="pension" style="text-align:center">${U.pension.open}</button>` : ''}
     <button class="btn" data-act="track" style="text-align:center">${U.real.track}</button>
     <p class="small muted">${U.real.trackNote}</p>`;
   },
@@ -795,6 +838,7 @@ function advicePanel() {
       <p class="small muted">${A.leversNote}</p>
       ${riskUp ? `<p class="small">${A.riskWarn(signed(riskUp.d10))}</p>` : ''}
       <button class="btn primary" data-act="lab">${A.open}</button>
+      ${P.pension ? `<button class="btn" data-act="pension" style="text-align:center">${U.pension.open}</button>` : ''}
       <p class="small muted">${A.disclaimer}</p>
     </section>`;
 }
@@ -999,6 +1043,18 @@ const ACTIONS = {
     render();
   },
   labBack() { view = lab.from; lab = null; render(); },
+  pension() {
+    pen = { from: view, years: Math.max(0, s.profile.age - P.pensionRules.startAge), self: 0 };
+    view = 'pension';
+    render();
+    window.scrollTo(0, 0);
+  },
+  penYears({ d }) {
+    pen.years = Math.max(0, Math.min(s.profile.age - 15, pen.years + Number(d)));
+    render();
+  },
+  penSelf({ v }) { pen.self = Number(v); render(); },
+  penBack() { view = pen.from; pen = null; render(); },
   untrack() {
     if (!window.confirm(U.real.removeConfirm)) return;
     real = null;
