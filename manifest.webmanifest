@@ -1,0 +1,11 @@
+{
+  "name": "下一步人生",
+  "short_name": "下一步人生",
+  "description": "用你的真實狀況,推演接下來十年的人生。",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fff6e6",
+  "theme_color": "#fff6e6",
+  "lang": "zh-Hant"
+}
