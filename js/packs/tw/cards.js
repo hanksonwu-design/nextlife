@@ -146,7 +146,7 @@ export const CARDS = [
   {
     id: 'buyhouse', type: 'choice', title: '看到喜歡的房子', cooldown: 3,
     text: '',
-    dynamicText: (s) => `你看中一間 ${fmt(housePrice(s))} 的房子(約為年薪的 11 倍)。頭期款兩成 ${fmt(downPayment(s))},其餘貸款 30 年。`,
+    dynamicText: (s) => `你看中一間 ${fmt(housePrice(s))} 的房子。頭期款兩成 ${fmt(downPayment(s))},其餘貸款 30 年。`,
     when: (s) => !s.house && s.cash + s.invest >= downPayment(s) * 1.05,
     weight: () => 1.5,
     choices: [
@@ -310,11 +310,11 @@ export const CARDS = [
   },
   {
     id: 'kid', type: 'choice', title: '要不要生小孩', cooldown: 3,
-    text: '你們開始討論要不要生小孩。養育費用每月大約增加 2 萬,時間也會被大量佔用。',
+    text: '你們開始討論要不要生小孩。養育費用每月大約增加 2.7 萬,時間也會被大量佔用。',
     when: (s) => s.status === 'married' && s.kids < 2 && s.age < 43,
     weight: (s) => (s.kids ? 1.5 : 3),
     choices: [
-      { label: '生', effect: { run(s) { s.kids += 1; }, expenseAbs: 2, attrs: { relation: 8, mind: 2, health: -3, career: -4 } } },
+      { label: '生', effect: { run(s) { s.kids += 1; }, expenseAbs: 2.7, attrs: { relation: 8, mind: 2, health: -3, career: -4 } } },
       { label: '先不要', effect: { note: '你們決定維持現在的生活。', attrs: { relation: -1 } } },
     ],
   },

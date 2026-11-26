@@ -33,7 +33,11 @@ function gauss(s) {
 export function housePrice(s) {
   // 有選縣市就用該縣市的房價所得比
   const byCounty = P.econ.priceToIncome && P.econ.priceToIncome[s.profile.county];
-  return Math.round(s.income * 12 * (byCounty || P.econ.housePriceYears));
+  const ratio = byCounty || P.econ.housePriceYears;
+  // 房價所得比的分母是「家戶」所得。只拿個人年薪去乘,單身或收入較低的人會算出買不到的便宜房子,
+  // 所以至少是當地的中位數房價(房價所得比 × 家戶可支配所得中位數);收入更高的人則依自己的年薪往上。
+  const typical = ratio * (P.econ.householdIncome || 0);
+  return Math.round(Math.max(s.income * 12 * ratio, typical));
 }
 function loanPayment(balance, years) {
   const r = P.econ.loanRate;
