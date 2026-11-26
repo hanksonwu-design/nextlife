@@ -248,6 +248,8 @@ const VIEWS = {
     const baseSeg = ['min', 'actual'].map((v) => `<button class="${p.liBase === v ? 'on' : ''}" data-act="penBase" data-v="${v}" aria-pressed="${p.liBase === v}">${N.liBaseOpt[v]}</button>`).join('');
     const G = p.gap;
     const hasLp = p.hi.account > 0.05;
+    const owned = s.profile.house !== 'none';
+    const lifeSeg = (k, vals) => `<div class="stack"><div class="small muted">${N.lifeLabel[k]}</div><div class="seg">${vals.map((v) => `<button class="${pen[k] === v ? 'on' : ''}" data-act="penLife" data-k="${k}" data-v="${v}" aria-pressed="${pen[k] === v}">${N.lifeOpt[k][v]}</button>`).join('')}</div></div>`;
     const rng = (a, b) => (E.fmt(a) === E.fmt(b) ? E.fmt(a) : N.range(E.fmt(Math.min(a, b)), E.fmt(Math.max(a, b))));
     const verdict = G.worst.short <= 0 ? ['up', N.gapOk]
       : p.left === 0 ? ['down', N.gapNoTime(E.fmt(G.best.short), E.fmt(G.worst.short))]
@@ -291,6 +293,10 @@ const VIEWS = {
       <div class="row small muted"><span>${N.longAxis(s.profile.age, P.pensionRules.claimAge)[0]}</span><span>${N.longAxis(s.profile.age, P.pensionRules.claimAge)[1]}</span></div>
       <div class="title range num">${rng(long.main.last.p10, long.main.last.p90)}</div>
       <p class="small muted">${N.longMid(E.fmt(long.main.last.p50))}</p>
+      ${owned ? `<p class="small muted">${N.lifeOwned}</p>` : lifeSeg('house', ['no', 'buy'])}
+      ${lifeSeg('kid', ['no', 'yes'])}
+      ${!owned && pen.house === 'buy' ? `<p class="small">${long.main.bought > 0 ? N.lifeBought(Math.round(long.main.bought * 100), E.fmt(long.main.equity)) : N.lifeNever}</p>` : ''}
+      ${pen.kid === 'yes' ? `<p class="small muted">${N.lifeKid(E.fmt(kidCostOf()), P.econ.kidYears)}</p>` : ''}
       <p class="small muted">${N.longNote}</p>
       <p class="small muted">${N.longHist(E.fmt(long.hist.last.p50))}</p>
     </section>` : ''}
@@ -549,6 +555,7 @@ const VIEWS = {
       <h3>${F.probsTitle}</h3>
       ${probList(f, null)}
     </section>
+    ${farPanel()}
     <p class="small muted">${F.note}</p>
     <button class="btn primary" data-act="begin">${F.start}</button>
     <button class="btn" data-act="lab" style="text-align:center">${U.advice.open}</button>
@@ -850,6 +857,23 @@ function leverLabel(l) {
   if (l.k === 'risk') return A.lever.risk[l.v];
   return A.lever[l.k](l.v, E.fmt(Math.abs(p[l.k] * l.v)));
 }
+// 預測畫面:十年之外,再給一個到請領年齡的數字
+function farPanel() {
+  const R = P.pensionRules;
+  const long = longOf();
+  if (!R || !long || long.main.years <= 10) return '';
+  const N = U.pension;
+  const b = long.main.last;
+  return `<section class="panel stack">
+      <h3>${N.farTitle(R.claimAge)}</h3>
+      ${longChart(long.main)}
+      <div class="row small muted"><span>${N.longAxis(s.profile.age, R.claimAge)[0]}</span><span>${N.longAxis(s.profile.age, R.claimAge)[1]}</span></div>
+      <div class="title range num">${N.range(E.fmt(b.p10), E.fmt(b.p90))}</div>
+      <p class="small muted">${N.longMid(E.fmt(b.p50))}</p>
+      <p class="small muted">${N.farNote}</p>
+      <button class="btn" data-act="pension" style="text-align:center">${N.farOpen}</button>
+    </section>`;
+}
 function advicePanel() {
   const A = U.advice;
   const a = getAdvice();
@@ -860,12 +884,25 @@ function advicePanel() {
     a.cashMonths < 3 ? ['down', A.cashLow(months)] : ['up', A.cashOk(months)],
   ];
   if (a.base.neg >= 0.05) checks.push(['down', A.negRisk(Math.round(a.base.neg * 100))]);
+  const rs = retireSummary();
+  let retire = '';
+  if (rs) {
+    const G = rs.p.gap;
+    const v = G.worst.short <= 0 ? ['up', A.retireOk]
+      : rs.p.left === 0 ? ['down', A.retireNoTime]
+      : G.best.short <= 0 ? ['', A.retireMid(E.fmt(G.worst.saveMore))]
+      : ['down', A.retireBad(E.fmt(G.best.saveMore), E.fmt(G.worst.saveMore))];
+    const sp = rs.self;
+    const tip = rs.p.left > 0 ? `<li>${A.selfTip(E.fmt(sp.selfCost), E.fmt(sp.lo.extraMonthly), E.fmt(sp.hi.extraMonthly))}${sp.taxSaved > 0.005 ? A.selfTipTax(E.fmt(sp.taxSaved)) : ''}<br><span class="small muted">${A.selfTipNote}</span></li>` : '';
+    retire = `<h3>${A.retireTitle}</h3><ul class="checks"><li class="${v[0]}">${v[1]}</li>${tip}</ul>`;
+  }
   const top = a.levers[0];
   const riskUp = a.levers.find((l) => l.k === 'risk' && l.d50 > 0 && l.d10 < 0);
   return `<section class="panel stack">
       <h3>${A.title}</h3>
       <p class="small muted">${A.basis}</p>
       <ul class="checks">${checks.map(([cls, text]) => `<li class="${cls}">${text}</li>`).join('')}</ul>
+      ${retire}
       <h3>${A.leversTitle}</h3>
       ${top && top.d50 > 0 ? `<p><b>${A.top(leverLabel(top), signed(top.d50))}</b></p>` : ''}
       <ul class="lines levers">${a.levers.map((l) => `<li><span>${leverLabel(l)}</span><span class="num small ${l.d50 < 0 ? 'down' : 'up'}">${A.delta(signed(l.d50), signed(l.d10))}</span></li>`).join('')}</ul>
@@ -881,22 +918,34 @@ function labResult(change) {
   if (!lab.cache[key]) lab.cache[key] = E.scenario(realProfile(), change);
   return lab.cache[key];
 }
-// 兩條橫條:上面是現在的做法,下面是這個組合;橫條是八成範圍,直線是中間值
-// 到退休的長期試算(退休金頁用)。依自願提繳率快取,因為自提會讓每年的結餘變少。
-function getLong() {
+// 到退休的長期試算。依起點、自願提繳率、買房、生小孩快取(自提會讓每年的結餘變少)。
+const longCache = {};
+const kidCostOf = () => P.cards.find((c) => c.id === P.decisions.kid.card).choices[P.decisions.kid.yes].effect.expenseAbs;
+function longOf(self = 0, house = 'no', kid = 'no') {
   const R = P.pensionRules;
-  if (!R || !E.projectLong || s.profile.industry === 'public') return null;
-  const key = `${pen.self}`;
-  if (!pen.long || pen.long.key !== key) {
-    const prof = realProfile();
-    const o = { self: pen.self, selfCap: R.lpCap };
-    pen.long = {
-      key,
+  if (!R || !E.projectLong) return null;
+  const prof = realProfile();
+  const key = `${JSON.stringify(prof)}|${self}|${house}|${kid}`;
+  if (!longCache[key]) {
+    const o = { self, selfCap: R.lpCap, house, kid, kidCost: kidCostOf(), kidYears: P.econ.kidYears };
+    longCache[key] = {
       main: E.projectLong(prof, R.claimAge, 300, 2024, { ...o, stockMean: (1 + R.stockReal) * (1 + P.econ.inflation) - 1 }),
       hist: E.projectLong(prof, R.claimAge, 300, 2024, o),
     };
   }
-  return pen.long;
+  return longCache[key];
+}
+function getLong() {
+  return s.profile.industry === 'public' ? null : longOf(pen.self, pen.house, pen.kid);
+}
+// 退休準備的摘要(建議區塊用):照現在的做法夠不夠,以及自願提繳 6% 的效果
+function retireSummary() {
+  if (!P.pension || s.profile.industry === 'public') return null;
+  const long = longOf();
+  const own = long && { worst: long.main.last.p10, best: long.main.last.p90 };
+  const p = P.pension(realProfile(), { own });
+  if (p.na) return null;
+  return { p, self: P.pension(realProfile(), { self: P.pensionRules.lpSelfMax }) };
 }
 function longChart(r) {
   const W = 300, H = 130, M = 8;
@@ -912,6 +961,7 @@ function longChart(r) {
     <polygon class="band" points="${band}"></polygon><polyline class="mid" points="${line('p50')}"></polyline></svg>`;
 }
 
+// 兩條橫條:上面是現在的做法,下面是這個組合;橫條是八成範圍,直線是中間值
 function labChart(base, cur) {
   const W = 300, M = 8;
   const min = Math.min(base.p10, cur.p10, 0), max = Math.max(base.p90, cur.p90);
@@ -1108,7 +1158,7 @@ const ACTIONS = {
   },
   labBack() { view = lab.from; lab = null; render(); },
   pension() {
-    pen = { from: view, years: Math.max(0, s.profile.age - P.pensionRules.startAge), self: 0, need: 1, liBase: 'min' };
+    pen = { from: view, years: Math.max(0, s.profile.age - P.pensionRules.startAge), self: 0, need: 1, liBase: 'min', house: 'no', kid: 'no' };
     view = 'pension';
     render();
     window.scrollTo(0, 0);
@@ -1120,6 +1170,7 @@ const ACTIONS = {
   penSelf({ v }) { pen.self = Number(v); render(); },
   penNeed({ v }) { pen.need = Number(v); render(); },
   penBase({ v }) { pen.liBase = v; render(); },
+  penLife({ k, v }) { pen[k] = v; render(); },
   penBack() { view = pen.from; pen = null; render(); },
   untrack() {
     if (!window.confirm(U.real.removeConfirm)) return;
