@@ -261,13 +261,10 @@ const VIEWS = {
   pension() {
     const N = U.pension;
     const long = getLong();
-    const p = P.pension(realProfile(), { years: pen.years, self: pen.self, need: pen.need, liBase: pen.liBase, own: long && { worst: long.main.last.p10, best: long.main.last.p90 } });
-    if (p.na) {
-      return `<h2>${N.title}</h2>
-      <section class="panel stack"><p>${N.naPublic}</p></section>
-      <button class="btn" data-act="penBack" style="text-align:center">${N.back}</button>`;
-    }
-    const seg = [0, 0.03, 0.06].map((v) => `<button class="${pen.self === v ? 'on' : ''}" data-act="penSelf" data-v="${v}" aria-pressed="${pen.self === v}">${N.selfOpt(v)}</button>`).join('');
+    const p = P.pension(realProfile(), { years: pen.years, self: pen.self, need: pen.need, liBase: pen.liBase, pubSys: pen.pubSys, pubBase: pen.pubBase, own: long && { worst: long.main.last.p10, best: long.main.last.p90 } });
+    const B = p.pub ? N.pub : null; // 軍公教用另一組說明文字
+    const pubSeg = (k, vals, cur, label) => `<div class="seg">${vals.map((v) => `<button class="${cur === v ? 'on' : ''}" data-act="penPub" data-k="${k}" data-v="${v}" aria-pressed="${cur === v}">${label(v)}</button>`).join('')}</div>`;
+    const seg = (p.pub ? [0, 0.03, p.selfMax] : [0, 0.03, 0.06]).map((v) => `<button class="${pen.self === v ? 'on' : ''}" data-act="penSelf" data-v="${v}" aria-pressed="${pen.self === v}">${N.selfOpt(v)}</button>`).join('');
     const needSeg = [0.7, 1, 1.2].map((v) => `<button class="${pen.need === v ? 'on' : ''}" data-act="penNeed" data-v="${v}" aria-pressed="${pen.need === v}">${N.needOpt(v)}</button>`).join('');
     const baseSeg = ['min', 'actual'].map((v) => `<button class="${p.liBase === v ? 'on' : ''}" data-act="penBase" data-v="${v}" aria-pressed="${p.liBase === v}">${N.liBaseOpt[v]}</button>`).join('');
     const G = p.gap;
@@ -280,21 +277,27 @@ const VIEWS = {
       : G.best.short <= 0 ? ['', N.gapMid(E.fmt(G.worst.short), E.fmt(G.worst.saveMore))]
       : ['down', N.gapBad(E.fmt(G.best.short), E.fmt(G.worst.short), E.fmt(G.best.saveMore), E.fmt(G.worst.saveMore))];
     return `<h2>${N.title}</h2>
-    <p class="muted small">${N.intro}</p>
+    <p class="muted small">${B ? B.intro : N.intro}</p>
     <section class="panel stack ending">
       <p class="muted small">${N.totalTitle}</p>
       <div class="title range num">${rng(p.lo.total, p.hi.total)}</div>
-      ${hasLp ? `<p class="small muted">${N.rangeNote}</p>` : ''}
+      ${hasLp ? `<p class="small muted">${B ? B.rangeNote : N.rangeNote}</p>` : ''}
       <p><b>${N.replace(Math.round(p.lo.replace * 100), Math.round(p.hi.replace * 100), E.fmt(p.finalWage))}</b><br><span class="small muted">${N.replaceNote}</span></p>
     </section>
     <section class="panel stack">
       <ul class="lines">
-        <li><span>${N.liRow}<br><span class="small muted">${N.liNote(E.fmt(p.liWage), Math.round(p.liYears))}</span></span><span class="num">${E.fmt(p.li)}</span></li>
-        ${hasLp ? `<li><span>${N.lpRow}<br><span class="small muted">${N.lpNote(E.fmt(p.lo.account), E.fmt(p.hi.account), p.payYears)}</span></span><span class="num">${rng(p.lo.lp, p.hi.lp)}</span></li>` : ''}
-        ${p.hi.now > 0 ? `<li class="small muted"><span>${N.nowRow}</span><span class="num">${N.range(E.fmt(p.lo.now), E.fmt(p.hi.now))}</span></li>` : ''}
+        ${!B ? `<li><span>${N.liRow}<br><span class="small muted">${N.liNote(E.fmt(p.liWage), Math.round(p.liYears))}</span></span><span class="num">${E.fmt(p.li)}</span></li>`
+          : p.pub.sys === 'db' ? `<li><span>${B.dbRow}<br><span class="small muted">${B.dbNote(E.fmt(p.pub.base2), Math.round(p.pub.rate * 1000) / 10)}</span></span><span class="num">${E.fmt(p.li)}</span></li>`
+          : `<li><span>${B.insRow}<br><span class="small muted">${B.insNote(E.fmt(p.liWage), Math.round(p.pub.insYears))}</span></span><span class="num">${E.fmt(p.li)}</span></li>`}
+        ${hasLp ? `<li><span>${B ? B.lpRow : N.lpRow}<br><span class="small muted">${N.lpNote(E.fmt(p.lo.account), E.fmt(p.hi.account), p.payYears)}</span></span><span class="num">${rng(p.lo.lp, p.hi.lp)}</span></li>` : ''}
+        ${p.hi.now > 0 ? `<li class="small muted"><span>${B ? B.nowRow : N.nowRow}</span><span class="num">${N.range(E.fmt(p.lo.now), E.fmt(p.hi.now))}</span></li>` : ''}
         ${hasLp && p.lo.at10 != null ? `<li class="small muted"><span>${N.at10Row}</span><span class="num">${N.range(E.fmt(p.lo.at10), E.fmt(p.hi.at10))}</span></li>` : ''}
       </ul>
-      ${hasLp ? `<p class="small muted">${N.lpFlat(E.fmt(p.lo.lpFirst), E.fmt(p.hi.lpFirst))}</p>` : ''}
+      ${hasLp ? `<p class="small muted">${(B ? B.lpFlat : N.lpFlat)(E.fmt(p.lo.lpFirst), E.fmt(p.hi.lpFirst))}</p>` : ''}
+      ${B && p.pub.sys === 'db' ? `<p class="small muted">${p.pub.short ? B.dbShort : B.dbCap}</p>` : ''}
+      ${B ? `<div class="stack"><div class="small muted">${B.sysLabel}</div>${pubSeg('pubSys', ['db', 'dc'], p.pub.sys, (v) => B.sysOpt[v])}</div>
+      <div class="stack"><div class="small muted">${B.baseLabel}</div>${pubSeg('pubBase', P.pensionRules.pubBaseOpts, p.pub.share, B.baseOpt)}</div>
+      <p class="small muted">${B.baseNote}</p>` : ''}
       ${p.free ? `<div class="stack"><div class="small muted">${N.liBaseLabel}</div><div class="seg">${baseSeg}</div></div><p class="small muted">${N.freeNote}</p>` : ''}
     </section>
     <section class="panel stack">
@@ -302,7 +305,7 @@ const VIEWS = {
       <div class="stack"><div class="small muted">${N.needLabel}</div><div class="seg">${needSeg}</div></div>
       <ul class="lines">
         <li><span>${N.needRow}</span><span class="num">${E.fmt(G.need)}</span></li>
-        <li><span>${N.gotRow}</span><span class="num">${rng(p.lo.total, p.hi.total)}</span></li>
+        <li><span>${B ? B.gotRow : N.gotRow}</span><span class="num">${rng(p.lo.total, p.hi.total)}</span></li>
         ${p.spouse ? `<li><span>${N.spouseRow}</span><span class="num">${rng(p.spouse.lo, p.spouse.hi)}</span></li>` : ''}
         <li><span>${N.gapRow}</span><span class="num">${G.worst.monthly <= 0 ? N.gapNone : rng(G.best.monthly, G.worst.monthly)}</span></li>
         ${G.worst.monthly > 0 ? `<li><span>${N.lumpRow(p.planAge)}</span><span class="num">${rng(G.best.lump, G.worst.lump)}</span></li>
@@ -310,7 +313,7 @@ const VIEWS = {
       </ul>
       <p class="${verdict[0]}"><b>${verdict[1]}</b></p>
       ${G.surplus < 0 ? `<p class="small down">${N.surplusNeg}</p>` : ''}
-      <p class="small muted">${N.gapNote}</p>
+      <p class="small muted">${!B ? N.gapNote : p.pub.sys === 'db' ? B.gapNoteDb : B.gapNote}</p>
       ${p.spouse ? `<p class="small muted">${N.spouseNote}</p>` : ''}
     </section>
     ${long && long.main.years > 0 ? `<section class="panel stack">
@@ -329,12 +332,12 @@ const VIEWS = {
     <section class="panel stack">
       <div class="row"><span>${N.yearsLabel}</span>
         <span class="stepper"><button data-act="penYears" data-d="-1" aria-label="−1">−</button><b class="num">${N.yearsValue(p.worked)}</b><button data-act="penYears" data-d="1" aria-label="+1">+</button></span></div>
-      <div class="stack"><div class="small muted">${N.selfLabel}</div><div class="seg">${seg}</div></div>
-      ${pen.self > 0 ? `<p><b>${N.selfLine(E.fmt(p.selfCost), E.fmt(p.lo.extraMonthly), E.fmt(p.hi.extraMonthly))}</b></p><p class="small muted">${p.taxSaved > 0.005 ? N.selfTax(E.fmt(p.taxSaved)) : N.selfTaxNone}</p>` : ''}
+      ${p.selfMax > 0 ? `<div class="stack"><div class="small muted">${B ? B.selfLabel : N.selfLabel}</div><div class="seg">${seg}</div></div>` : ''}
+      ${p.self > 0 ? `<p><b>${N.selfLine(E.fmt(p.selfCost), E.fmt(p.lo.extraMonthly), E.fmt(p.hi.extraMonthly))}</b></p><p class="small muted">${p.taxSaved > 0.005 ? N.selfTax(E.fmt(p.taxSaved)) : N.selfTaxNone}</p>` : ''}
     </section>
     <section class="panel stack">
       <h3>${N.caveatTitle}</h3>
-      <ul class="small muted plain">${N.caveats.map((c) => `<li>${c}</li>`).join('')}</ul>
+      <ul class="small muted plain">${(B ? B.caveats : N.caveats).map((c) => `<li>${c}</li>`).join('')}</ul>
     </section>
     <p class="small muted">${U.advice.disclaimer}</p>
     <button class="btn" data-act="penBack" style="text-align:center">${N.back}</button>`;
@@ -934,7 +937,7 @@ function advicePanel() {
       : G.best.short <= 0 ? ['', A.retireMid(E.fmt(G.worst.saveMore))]
       : ['down', A.retireBad(E.fmt(G.best.saveMore), E.fmt(G.worst.saveMore))];
     const sp = rs.self;
-    const tip = rs.p.left > 0 ? `<li>${A.selfTip(E.fmt(sp.selfCost), E.fmt(sp.lo.extraMonthly), E.fmt(sp.hi.extraMonthly))}${sp.taxSaved > 0.005 ? A.selfTipTax(E.fmt(sp.taxSaved)) : ''}<br><span class="small muted">${A.selfTipNote}</span></li>` : '';
+    const tip = rs.p.left > 0 && sp.selfMax > 0 ? `<li>${A.selfTip(E.fmt(sp.selfCost), E.fmt(sp.lo.extraMonthly), E.fmt(sp.hi.extraMonthly))}${sp.taxSaved > 0.005 ? A.selfTipTax(E.fmt(sp.taxSaved)) : ''}<br><span class="small muted">${A.selfTipNote}</span></li>` : '';
     retire = `<h3>${A.retireTitle}</h3><ul class="checks"><li class="${v[0]}">${v[1]}</li>${tip}</ul>`;
   }
   const top = a.levers[0];
@@ -977,16 +980,19 @@ function longOf(self = 0, house = 'no', kid = 'no') {
   return longCache[key];
 }
 function getLong() {
-  return s.profile.industry === 'public' ? null : longOf(pen.self, pen.house, pen.kid);
+  // 軍公教的自願提繳是用「本俸加一倍」算的,換成占月收入的比例再交給長期試算
+  const pub = s.profile.industry === 'public';
+  const self = pub ? pen.self * (pen.pubBase || P.pensionRules.pubBaseShare) * 2 : pen.self;
+  return longOf(self, pen.house, pen.kid);
 }
 // 退休準備的摘要(建議區塊用):照現在的做法夠不夠,以及自願提繳 6% 的效果
 function retireSummary() {
-  if (!P.pension || s.profile.industry === 'public') return null;
+  if (!P.pension) return null;
   const long = longOf();
   const own = long && { worst: long.main.last.p10, best: long.main.last.p90 };
   const p = P.pension(realProfile(), { own });
   if (p.na) return null;
-  return { p, self: P.pension(realProfile(), { self: P.pensionRules.lpSelfMax }) };
+  return { p, self: P.pension(realProfile(), { self: p.pub ? P.pensionRules.pubDcSelfMax : P.pensionRules.lpSelfMax }) };
 }
 function longChart(r) {
   const W = 300, H = 130, M = 8;
@@ -1220,6 +1226,11 @@ const ACTIONS = {
   penNeed({ v }) { pen.need = Number(v); render(); },
   penBase({ v }) { pen.liBase = v; render(); },
   penLife({ k, v }) { pen[k] = v; render(); },
+  penPub({ k, v }) {
+    pen[k] = k === 'pubBase' ? Number(v) : v;
+    if (k === 'pubSys' && v === 'db') pen.self = 0; // 舊制沒有自願提繳
+    render();
+  },
   penBack() { view = pen.from; pen = null; render(); },
   untrack() {
     if (!window.confirm(U.real.removeConfirm)) return;
