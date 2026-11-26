@@ -489,7 +489,14 @@ export function settleYear(s) {
     gifts = s.expense * 0.5;
     L.push({ text: T.gifts, value: -gifts });
   }
-  const surplus = salary + bonus - spend - loanPay - gifts;
+  // 稅與社會保險:國家包有提供算法才扣(表單填的月收入是稅前)
+  let withheld = 0;
+  if (P.deductions) {
+    const d = P.deductions({ income: s.income, bonus, industry: s.industry, kids: s.kids });
+    withheld = d.total;
+    L.push({ text: T.deduct(fmt(d.tax), fmt(d.insurance)), value: -withheld });
+  }
+  const surplus = salary + bonus - spend - loanPay - gifts - withheld;
 
   // 投資報酬
   // 理財功課:每一級讓平均報酬高一點;3 級起懂得分散,單年最多虧 20%

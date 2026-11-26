@@ -236,35 +236,59 @@ const VIEWS = {
   // 退休金試算:勞保年金 + 勞退專戶,可以調已工作年資和自願提繳
   pension() {
     const N = U.pension;
-    const p = P.pension(realProfile(), { years: pen.years, self: pen.self });
+    const p = P.pension(realProfile(), { years: pen.years, self: pen.self, need: pen.need, liBase: pen.liBase });
     if (p.na) {
       return `<h2>${N.title}</h2>
       <section class="panel stack"><p>${N.naPublic}</p></section>
       <button class="btn" data-act="penBack" style="text-align:center">${N.back}</button>`;
     }
     const seg = [0, 0.03, 0.06].map((v) => `<button class="${pen.self === v ? 'on' : ''}" data-act="penSelf" data-v="${v}" aria-pressed="${pen.self === v}">${N.selfOpt(v)}</button>`).join('');
+    const needSeg = [0.7, 1, 1.2].map((v) => `<button class="${pen.need === v ? 'on' : ''}" data-act="penNeed" data-v="${v}" aria-pressed="${pen.need === v}">${N.needOpt(v)}</button>`).join('');
+    const baseSeg = ['min', 'actual'].map((v) => `<button class="${p.liBase === v ? 'on' : ''}" data-act="penBase" data-v="${v}" aria-pressed="${p.liBase === v}">${N.liBaseOpt[v]}</button>`).join('');
+    const G = p.gap;
+    const hasLp = p.hi.account > 0.05;
+    const rng = (a, b) => (E.fmt(a) === E.fmt(b) ? E.fmt(a) : N.range(E.fmt(Math.min(a, b)), E.fmt(Math.max(a, b))));
+    const verdict = G.worst.short <= 0 ? ['up', N.gapOk]
+      : p.left === 0 ? ['down', N.gapNoTime(E.fmt(G.best.short), E.fmt(G.worst.short))]
+      : G.best.short <= 0 ? ['', N.gapMid(E.fmt(G.worst.short), E.fmt(G.worst.saveMore))]
+      : ['down', N.gapBad(E.fmt(G.best.short), E.fmt(G.worst.short), E.fmt(G.best.saveMore), E.fmt(G.worst.saveMore))];
     return `<h2>${N.title}</h2>
     <p class="muted small">${N.intro}</p>
     <section class="panel stack ending">
       <p class="muted small">${N.totalTitle}</p>
-      <div class="title range num">${N.range(E.fmt(p.lo.total), E.fmt(p.hi.total))}</div>
-      <p class="small muted">${N.rangeNote}</p>
+      <div class="title range num">${rng(p.lo.total, p.hi.total)}</div>
+      ${hasLp ? `<p class="small muted">${N.rangeNote}</p>` : ''}
       <p><b>${N.replace(Math.round(p.lo.replace * 100), Math.round(p.hi.replace * 100), E.fmt(p.finalWage))}</b><br><span class="small muted">${N.replaceNote}</span></p>
     </section>
     <section class="panel stack">
       <ul class="lines">
         <li><span>${N.liRow}<br><span class="small muted">${N.liNote(E.fmt(p.liWage), Math.round(p.liYears))}</span></span><span class="num">${E.fmt(p.li)}</span></li>
-        <li><span>${N.lpRow}<br><span class="small muted">${N.lpNote(E.fmt(p.lo.account), E.fmt(p.hi.account), p.payYears)}</span></span><span class="num">${N.range(E.fmt(p.lo.lp), E.fmt(p.hi.lp))}</span></li>
+        ${hasLp ? `<li><span>${N.lpRow}<br><span class="small muted">${N.lpNote(E.fmt(p.lo.account), E.fmt(p.hi.account), p.payYears)}</span></span><span class="num">${rng(p.lo.lp, p.hi.lp)}</span></li>` : ''}
         ${p.hi.now > 0 ? `<li class="small muted"><span>${N.nowRow}</span><span class="num">${N.range(E.fmt(p.lo.now), E.fmt(p.hi.now))}</span></li>` : ''}
-        ${p.lo.at10 != null ? `<li class="small muted"><span>${N.at10Row}</span><span class="num">${N.range(E.fmt(p.lo.at10), E.fmt(p.hi.at10))}</span></li>` : ''}
+        ${hasLp && p.lo.at10 != null ? `<li class="small muted"><span>${N.at10Row}</span><span class="num">${N.range(E.fmt(p.lo.at10), E.fmt(p.hi.at10))}</span></li>` : ''}
       </ul>
-      ${p.free ? `<p class="small muted">${N.freeNote}</p>` : ''}
+      ${hasLp ? `<p class="small muted">${N.lpFlat(E.fmt(p.lo.lpFirst), E.fmt(p.hi.lpFirst))}</p>` : ''}
+      ${p.free ? `<div class="stack"><div class="small muted">${N.liBaseLabel}</div><div class="seg">${baseSeg}</div></div><p class="small muted">${N.freeNote}</p>` : ''}
+    </section>
+    <section class="panel stack">
+      <h3>${N.gapTitle}</h3>
+      <div class="stack"><div class="small muted">${N.needLabel}</div><div class="seg">${needSeg}</div></div>
+      <ul class="lines">
+        <li><span>${N.needRow}</span><span class="num">${E.fmt(G.need)}</span></li>
+        <li><span>${N.gotRow}</span><span class="num">${rng(p.lo.total, p.hi.total)}</span></li>
+        <li><span>${N.gapRow}</span><span class="num">${G.worst.monthly <= 0 ? N.gapNone : rng(G.best.monthly, G.worst.monthly)}</span></li>
+        ${G.worst.monthly > 0 ? `<li><span>${N.lumpRow(p.planAge)}</span><span class="num">${rng(G.best.lump, G.worst.lump)}</span></li>
+        <li><span>${N.ownRow}</span><span class="num">${rng(G.worst.own, G.best.own)}</span></li>` : ''}
+      </ul>
+      <p class="${verdict[0]}"><b>${verdict[1]}</b></p>
+      ${G.surplus < 0 ? `<p class="small down">${N.surplusNeg}</p>` : ''}
+      <p class="small muted">${N.gapNote}</p>
     </section>
     <section class="panel stack">
       <div class="row"><span>${N.yearsLabel}</span>
         <span class="stepper"><button data-act="penYears" data-d="-1" aria-label="−1">−</button><b class="num">${N.yearsValue(p.worked)}</b><button data-act="penYears" data-d="1" aria-label="+1">+</button></span></div>
       <div class="stack"><div class="small muted">${N.selfLabel}</div><div class="seg">${seg}</div></div>
-      ${pen.self > 0 ? `<p><b>${N.selfLine(E.fmt(p.selfCost), E.fmt(p.lo.extraMonthly), E.fmt(p.hi.extraMonthly))}</b></p><p class="small muted">${N.selfTax}</p>` : ''}
+      ${pen.self > 0 ? `<p><b>${N.selfLine(E.fmt(p.selfCost), E.fmt(p.lo.extraMonthly), E.fmt(p.hi.extraMonthly))}</b></p><p class="small muted">${p.taxSaved > 0.005 ? N.selfTax(E.fmt(p.taxSaved)) : N.selfTaxNone}</p>` : ''}
     </section>
     <section class="panel stack">
       <h3>${N.caveatTitle}</h3>
@@ -1044,7 +1068,7 @@ const ACTIONS = {
   },
   labBack() { view = lab.from; lab = null; render(); },
   pension() {
-    pen = { from: view, years: Math.max(0, s.profile.age - P.pensionRules.startAge), self: 0 };
+    pen = { from: view, years: Math.max(0, s.profile.age - P.pensionRules.startAge), self: 0, need: 1, liBase: 'min' };
     view = 'pension';
     render();
     window.scrollTo(0, 0);
@@ -1054,6 +1078,8 @@ const ACTIONS = {
     render();
   },
   penSelf({ v }) { pen.self = Number(v); render(); },
+  penNeed({ v }) { pen.need = Number(v); render(); },
+  penBase({ v }) { pen.liBase = v; render(); },
   penBack() { view = pen.from; pen = null; render(); },
   untrack() {
     if (!window.confirm(U.real.removeConfirm)) return;
