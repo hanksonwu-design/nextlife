@@ -237,13 +237,16 @@ const VIEWS = {
     const A = U.advice;
     const p = s.profile;
     const c = lab.change;
-    const base = labResult({ expense: 0, income: 0, risk: p.risk });
+    const base = labResult({ expense: 0, income: 0, risk: p.risk, house: 'auto', kid: 'auto' });
     const cur = labResult(c);
-    const same = c.expense === 0 && c.income === 0 && c.risk === p.risk;
+    const same = c.expense === 0 && c.income === 0 && c.risk === p.risk && c.house === 'auto' && c.kid === 'auto';
+    const owned = p.house !== 'none';
+    const start = E.newGame(E.applyChange(realProfile(), c), 1); // 只用來算這個組合的房價
+    const kidCost = P.cards.find((card) => card.id === P.decisions.kid.card).choices[P.decisions.kid.yes].effect.expenseAbs;
     const np = E.applyChange(p, c);
     const group = (k) => `<div class="stack"><div class="small muted">${A.group[k]}</div>
       <div class="seg">${E.LEVERS[k].map((v) => {
-        const label = k === 'risk' ? A.opt.risk[v] : A.opt[k](v);
+        const label = typeof A.opt[k] === 'function' ? A.opt[k](v) : A.opt[k][v];
         const isNow = k === 'risk' && v === p.risk;
         return `<button class="${c[k] === v ? 'on' : ''}" data-act="labSet" data-k="${k}" data-v="${v}" aria-pressed="${c[k] === v}">${label}${isNow ? `<small>${A.now}</small>` : ''}</button>`;
       }).join('')}</div></div>`;
@@ -255,11 +258,20 @@ const VIEWS = {
       <p class="small muted num">${A.monthly(E.fmt(np.income), E.fmt(np.expense))}</p>
     </section>
     <section class="panel stack">
+      <h3>${A.lifeTitle}</h3>
+      ${owned ? `<p class="small muted">${A.owned}</p>` : group('house')}${group('kid')}
+      <p class="small muted">${A.autoNote}</p>
+      ${!owned && c.house === 'buy' ? `<p class="small muted">${A.houseNote(E.fmt(E.housePrice(start)), E.fmt(E.downPayment(start)), P.econ.loanYears)}</p>` : ''}
+      ${c.kid === 'yes' ? `<p class="small muted">${A.kidNote(E.fmt(kidCost))}</p>` : ''}
+    </section>
+    <section class="panel stack">
       <h3>${A.resultTitle}</h3>
       ${labChart(base, cur)}
-      <ul class="lines">${row(A.baseRow, base)}${same ? '' : row(A.newRow, cur)}</ul>
+      <ul class="lines">${row(A.baseRow, base)}${same ? '' : row(A.newRow, cur)}
+        ${same ? '' : `<li class="small muted"><span>${A.liquidRow}</span><span class="num">${E.fmt(cur.liquid50)}</span></li>`}</ul>
       <p><b>${same ? A.same : A.diff(signed(cur.p50 - base.p50), signed(cur.p10 - base.p10))}</b></p>
       ${cur.neg >= 0.05 ? `<p class="small down">${A.negLine(Math.round(cur.neg * 100))}</p>` : ''}
+      ${!owned && c.house === 'buy' ? `<p class="small">${cur.bought > 0 ? A.boughtLine(Math.round(cur.bought * 100)) : A.neverBought}</p><p class="small muted">${A.houseCaveat}</p>` : ''}
     </section>
     <p class="small muted">${A.disclaimer}</p>
     <button class="btn" data-act="labBack" style="text-align:center">${A.back}</button>`;
@@ -787,7 +799,7 @@ function advicePanel() {
     </section>`;
 }
 function labResult(change) {
-  const key = `${change.expense}|${change.income}|${change.risk}`;
+  const key = `${change.expense}|${change.income}|${change.risk}|${change.house}|${change.kid}`;
   if (!lab.cache[key]) lab.cache[key] = E.scenario(realProfile(), change);
   return lab.cache[key];
 }
@@ -977,13 +989,13 @@ const ACTIONS = {
   },
   real() { realError = ''; view = 'real'; render(); },
   lab() {
-    lab = { from: view, change: { expense: 0, income: 0, risk: s.profile.risk }, cache: {} };
+    lab = { from: view, change: { expense: 0, income: 0, risk: s.profile.risk, house: 'auto', kid: 'auto' }, cache: {} };
     view = 'lab';
     render();
     window.scrollTo(0, 0);
   },
   labSet({ k, v }) {
-    lab.change[k] = k === 'risk' ? v : Number(v);
+    lab.change[k] = k === 'expense' || k === 'income' ? Number(v) : v;
     render();
   },
   labBack() { view = lab.from; lab = null; render(); },

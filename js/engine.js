@@ -739,9 +739,15 @@ export function randomPlan(s) {
   return picks;
 }
 
-export function simulate(profile, n, seed, traits = {}) {
+// policy:指定人生決定(組合試算用),沒指定的就照原本隨機選。
+//   house: 'buy' = 存款夠頭期款的那一年就買;'no' = 十年都不買
+//   kid:   'yes' = 第二年生一個,之後不再生;'no' = 十年都不生
+// 對應的事件卡和選項位置在國家包的 decisions。
+export function simulate(profile, n, seed, traits = {}, policy = {}) {
+  const D = P.decisions || {};
   const totals = [];
   const nets = [];
+  let bought = 0;
   const yearly = Array.from({ length: TOTAL_TURNS }, () => []); // 每一年所有輪的淨資產
   const yearlyLiquid = Array.from({ length: TOTAL_TURNS }, () => []); // 每一年所有輪的存款加投資
   let start = 0;
@@ -754,10 +760,19 @@ export function simulate(profile, n, seed, traits = {}) {
       if (s.turn === 3) s.value = traits.value ?? null;
       if (s.turn === 5) s.money = traits.money ?? null;
       if (s.turn === 7) s.coping = traits.coping ?? null;
+      if (policy.house === 'buy' && !s.house && s.cash + s.invest >= downPayment(s) * 1.05) buyHouse(s, []);
+      if (policy.kid === 'yes' && D.kid && s.kids === 0 && s.history.length === 1) {
+        applyEffect(s, getCard(D.kid.card).choices[D.kid.yes].effect, []);
+      }
       planYear(s, randomPlan(s));
       rollTurn(s);
-      choose(s, Math.floor(rand(s) * getCard(s.pending).choices.length));
+      const card = getCard(s.pending);
+      let idx = Math.floor(rand(s) * card.choices.length); // 不管有沒有指定都先抽,各情境用掉的亂數才會一樣多
+      if (D.house && card.id === D.house.card && policy.house) idx = policy.house === 'buy' ? D.house.yes : D.house.no;
+      if (D.kid && card.id === D.kid.card && policy.kid) idx = D.kid.no; // 指定「生」的那一個已經在第二年生了
+      choose(s, idx);
     }
+    if (s.flags.bought) bought++;
     totals.push(scores(s).total);
     nets.push(netWorth(s));
     s.history.forEach((h, t) => { yearly[t].push(h.net); yearlyLiquid[t].push(h.liquid); });
@@ -770,7 +785,7 @@ export function simulate(profile, n, seed, traits = {}) {
     return { p10: q(v, 0.1), p50: q(v, 0.5), p90: q(v, 0.9) };
   };
   const band = yearly.map(toBand);
-  return { totals, nets, start, band, liquidStart, liquidBand: yearlyLiquid.map(toBand), netP10: q(nets, 0.1), netP50: q(nets, 0.5), netP90: q(nets, 0.9) };
+  return { totals, nets, start, band, liquidStart, boughtShare: bought / n, liquidBand: yearlyLiquid.map(toBand), netP10: q(nets, 0.1), netP50: q(nets, 0.5), netP90: q(nets, 0.9) };
 }
 
 // 把模擬結果整理成可以存檔的「預測」:八成機率範圍、逐年範圍、幾個目標的達成機率
@@ -808,7 +823,8 @@ export function bandAt(start, band, t, slack = 0) {
 
 // ---------- 情境試算與財務建議 ----------
 // 可以調整的三件事,每件三個檔位。支出和收入是相對現在的比例,投資配置是風險等級。
-export const LEVERS = { expense: [0, -0.1, -0.2], income: [0, 0.1, 0.2], risk: ['low', 'mid', 'high'] };
+// 買房和生小孩是人生決定:'auto' 是照模型原本的做法(遇到事件卡時隨機決定)。
+export const LEVERS = { expense: [0, -0.1, -0.2], income: [0, 0.1, 0.2], risk: ['low', 'mid', 'high'], house: ['auto', 'no', 'buy'], kid: ['auto', 'no', 'yes'] };
 
 // 把一組改變套到起點上(沒寫到的項目維持原樣)
 export function applyChange(profile, change = {}) {
@@ -823,8 +839,15 @@ export function applyChange(profile, change = {}) {
 // 套用一組改變後重新模擬,回傳十年後淨資產的八成範圍。
 // 各情境都用同一個亂數種子,遇到的運氣(哪幾年股市好壞、抽到哪些事件)一樣,差距才是來自這組改變本身。
 export function scenario(profile, change, n = 500, seed = 2024) {
-  const r = simulate(applyChange(profile, change), n, seed);
-  return { start: r.start, p10: r.netP10, p50: r.netP50, p90: r.netP90, neg: r.nets.filter((v) => v < 0).length / r.nets.length };
+  const pick = (v) => (v && v !== 'auto' ? v : undefined);
+  const r = simulate(applyChange(profile, change), n, seed, {}, { house: pick(change.house), kid: pick(change.kid) });
+  const last = r.liquidBand[r.liquidBand.length - 1];
+  return {
+    start: r.start, p10: r.netP10, p50: r.netP50, p90: r.netP90,
+    liquid50: last.p50, // 十年後存款加投資的中間值(不含房子)
+    neg: r.nets.filter((v) => v < 0).length / r.nets.length,
+    bought: r.boughtShare, // 十年內買了房的比例
+  };
 }
 
 // 財務建議用的數據:目前的幾個體質指標,以及「只改一件事」各自讓十年後差多少(依中間值的差距由大到小)
