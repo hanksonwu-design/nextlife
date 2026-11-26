@@ -36,7 +36,8 @@ export function housePrice(s) {
   const ratio = byCounty || P.econ.housePriceYears;
   // 房價所得比的分母是「家戶」所得。只拿個人年薪去乘,單身或收入較低的人會算出買不到的便宜房子,
   // 所以至少是當地的中位數房價(房價所得比 × 家戶可支配所得中位數);收入更高的人則依自己的年薪往上。
-  const typical = ratio * (P.econ.householdIncome || 0);
+  // 中位數房價是今天的價格,過了幾年要照房價漲幅往上調,不然越晚買越便宜。
+  const typical = ratio * (P.econ.householdIncome || 0) * Math.pow(1 + (P.econ.houseGrowth || 0), s.turn || 0);
   return Math.round(Math.max((s.income + (s.spouse || 0)) * 12 * ratio, typical));
 }
 function loanPayment(balance, years) {
@@ -931,13 +932,14 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
     start = s.cash + s.invest;
     let kidPay = 0; // 這一年每月的養育支出(當年的價格)
     for (let t = 0; t < years; t++) {
+      s.turn = t; // 房價依過了幾年往上調(housePrice 會用到)
       if (opts.kid === 'yes' && opts.kidCost) {
         if (t === 1) kidPay = opts.kidCost * Math.pow(1 + X.inflation, t);
         else if (t > 1 && t < 1 + kidYears) kidPay *= 1 + X.inflation;
         else if (t >= 1 + kidYears) kidPay = 0;
       }
       if (opts.house === 'buy' && !s.house) {
-        const price = housePrice(s) * Math.pow(1 + X.houseGrowth, t);
+        const price = housePrice(s);
         const down = price * X.downRate;
         if (s.cash + s.invest >= down * 1.05) {
           const fromCash = Math.min(Math.max(s.cash, 0), down);

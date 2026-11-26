@@ -33,7 +33,7 @@ export const TAX = {
   preschoolFirst: 15,
   preschoolNext: 22.5,
   // 軍公教:公保和退撫都用本俸計算,自付 35%
-  pubBaseShare: 0.6, // 本俸占月薪的比例(設計值)
+  pubBaseShare: 0.55, // 本俸占月薪的比例(六職等本俸一級約 53%,資深人員約六成)
   pubOwnShare: 0.35,
   pubInsRate: 0.0783, // 公保費率:一般公務人員(不適用年金)。114 年 1 月起
   pubInsRateDc: 0.1633, // 公保費率:112 年 7 月以後到職(適用年金)

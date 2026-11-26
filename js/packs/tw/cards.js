@@ -310,7 +310,7 @@ export const CARDS = [
   },
   {
     id: 'kid', type: 'choice', title: '要不要生小孩', cooldown: 3,
-    text: '你們開始討論要不要生小孩。養育費用每月大約增加 2.7 萬(未滿 5 歲每月有 5,000 元育兒津貼),時間也會被大量佔用。',
+    text: '你們開始討論要不要生小孩。養育費用每月大約增加 2.7 萬(未滿 6 歲每月有 5,000 元育兒津貼),時間也會被大量佔用。',
     when: (s) => s.status === 'married' && s.kids < 2 && s.age < 43,
     weight: (s) => (s.kids ? 1.5 : 3),
     choices: [
