@@ -712,12 +712,12 @@ export function runwayYears(s) {
 }
 
 // 財富分數:資產能支撐的年數,和同齡基準相比。
-// 剛好達標約 36 分,兩倍約 60 分,三倍約 74 分,越高越難再加分;
+// 剛好達標約 28 分,兩倍約 48 分,三倍約 63 分,越高越難再加分;
 // 用「相對同齡」而不是絕對金額,不同收入的起點才能公平比較。
 export function wealthScore(s) {
   const years = runwayYears(s);
   if (years <= 0) return 0;
-  return clamp(100 * (1 - Math.exp(-0.45 * (years / benchYears(s.age)))));
+  return clamp(100 * (1 - Math.exp(-0.33 * (years / benchYears(s.age)))));
 }
 
 export function scores(s) {
@@ -733,19 +733,21 @@ function endingId(s) {
   if (netWorth(s) < 0) return 'debt';
   if (k.mind < 30) return 'burnout';
   if (k.health < 35) return 'body';
-  if (k.total >= 75) return 'bloom';
-  if (k.wealth >= 75 && k.relation < 45) return 'island';
-  if (runwayYears(s) >= 20) return 'free';
-  if (k.wealth >= 75 && k.health >= 55 && k.mind >= 55) return 'ease';
-  if (k.wealth >= 75) return 'saver';
-  if (k.career >= 80) return 'top';
-  if (s.status === 'married' && s.kids > 0 && k.relation >= 70) return 'family';
-  if (k.health >= 68 && k.mind >= 66) return 'wellness';
-  if (k.relation >= 75 && k.wealth < 45) return 'cozy';
+  // 順序就是優先順序。門檻用 tools/balance.mjs 的幾種起點隨機玩來調:
+  // 有特色的結局(職場頂尖、創業、家庭、身心富足)排在單純有錢的結局前面,不然股市好的年份幾乎人人都是「游刃有餘」。
+  if (k.total >= 72) return 'bloom';
+  if (k.wealth >= 72 && k.relation < 45) return 'island';
+  if (runwayYears(s) >= 28) return 'free';
+  if (k.career >= 78) return 'top';
   if (s.flags.founder) return 'founder';
+  if (s.status === 'married' && s.kids > 0 && k.relation >= 68) return 'family';
+  if (k.health >= 68 && k.mind >= 66) return 'wellness';
+  if (k.wealth >= 72 && k.health >= 55 && k.mind >= 55) return 'ease';
+  if (k.wealth >= 72) return 'saver';
+  if (k.relation >= 72 && k.wealth < 45) return 'cozy';
   if (s.flags.bought && k.wealth < 50) return 'snail';
-  if (s.flags.side && k.total >= 48) return 'slash';
-  if (k.total >= 48) return 'steady';
+  if (s.flags.side && k.total >= 50) return 'slash';
+  if (k.total >= 50) return 'steady';
   return 'regroup';
 }
 export function ending(s) {
