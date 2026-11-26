@@ -2,6 +2,7 @@
 import * as E from './engine.js';
 import { pickPack } from './packs/index.js';
 import * as SND from './audio.js';
+import { drawCard, showCard } from './card.js';
 
 const app = document.getElementById('app');
 const toastEl = document.getElementById('toast');
@@ -107,6 +108,17 @@ const buzz = (ms) => {
     else navigator.vibrate?.(ms);
   } catch { /* 不支援震動的裝置略過 */ }
 };
+
+// 產生圖卡並顯示預覽。網頁版在頁尾放網址,包成 App 後沒有網址就不放
+async function openCard(spec, filename) {
+  const web = /^https?:$/.test(location.protocol) && !/^(localhost|127\.|\[::1\])/.test(location.hostname);
+  try {
+    const canvas = await drawCard({ ...spec, note: U.card.note, appName: U.appName, url: web ? (location.host + location.pathname).replace(/\/$/, '') : '' });
+    await showCard(canvas, filename, U.card, () => toast(U.card.fail));
+  } catch {
+    toast(U.card.fail);
+  }
+}
 
 // 彩帶:成功、拿到成就、走到結局時從畫面上方灑下來
 function burst(n = 26) {
@@ -340,6 +352,7 @@ const VIEWS = {
       <ul class="small muted plain">${(B ? B.caveats : N.caveats).map((c) => `<li>${c}</li>`).join('')}</ul>
     </section>
     <p class="small muted">${U.advice.disclaimer}</p>
+    <button class="btn primary" data-act="cardPension">${U.card.save}</button>
     <button class="btn" data-act="penBack" style="text-align:center">${N.back}</button>`;
   },
 
@@ -805,7 +818,8 @@ const VIEWS = {
       <h3>${N.premium}</h3>
       ${N.premiumItems.map((item) => `<button class="btn lock" data-act="locked"><span>${item}</span><span>${N.paid}</span></button>`).join('')}
     </section>
-    <button class="btn primary" data-act="share">${N.share}</button>
+    <button class="btn primary" data-act="cardEnd">${U.card.save}</button>
+    <button class="btn" data-act="share" style="text-align:center">${N.share}</button>
     <button class="btn" data-act="new" style="text-align:center">${N.again}</button>`;
   },
 };
@@ -1371,6 +1385,46 @@ const ACTIONS = {
     }, 1500);
   },
   locked() { toast(U.end.locked); },
+  // 把結局畫成一張圖
+  async cardEnd() {
+    const k = E.scores(s);
+    const e = E.ending(s);
+    await openCard({
+      kicker: U.end.sub(s.age),
+      title: e.title,
+      image: charImg(ENDING_MOOD[e.id]),
+      bigLabel: U.forecast.endNet,
+      big: E.fmt(E.netWorth(s)),
+      lines: s.mc ? [U.forecast.beat(s.mc.netPct)] : [],
+      bars: ['wealth', 'career', 'health', 'relation', 'mind'].map((key) => ({ label: T.attr[key], value: k[key] })),
+      rows: [[U.card.score, String(round(k.total))]],
+    }, U.card.fileEnd);
+  },
+  // 把退休試算畫成一張圖(和退休金頁同樣的設定)
+  async cardPension() {
+    const N = U.pension;
+    const long = getLong();
+    const p = P.pension(realProfile(), { years: pen.years, self: pen.self, need: pen.need, liBase: pen.liBase, pubSys: pen.pubSys, pubBase: pen.pubBase, own: long && { worst: long.main.last.p10, best: long.main.last.p90 } });
+    const G = p.gap;
+    const rng = (a, b) => (E.fmt(a) === E.fmt(b) ? E.fmt(a) : N.range(E.fmt(Math.min(a, b)), E.fmt(Math.max(a, b))));
+    const verdict = G.worst.short <= 0 ? { tone: 'up', text: N.gapOk }
+      : p.left === 0 ? { tone: 'down', text: N.gapNoTime(E.fmt(G.best.short), E.fmt(G.worst.short)) }
+      : G.best.short <= 0 ? { text: N.gapMid(E.fmt(G.worst.short), E.fmt(G.worst.saveMore)) }
+      : { tone: 'down', text: N.gapBad(E.fmt(G.best.short), E.fmt(G.worst.short), E.fmt(G.best.saveMore), E.fmt(G.worst.saveMore)) };
+    const rows = [
+      [U.card.need, E.fmt(G.need)],
+      [U.card.gap, G.worst.monthly <= 0 ? U.card.gapNone : rng(G.best.monthly, G.worst.monthly)],
+    ];
+    if (long && long.main.years > 0) rows.push([U.card.at65, rng(long.main.last.p10, long.main.last.p90)]);
+    await openCard({
+      kicker: N.title,
+      title: N.totalTitle,
+      image: charImg(),
+      big: rng(p.lo.total, p.hi.total),
+      lines: [verdict],
+      rows,
+    }, U.card.filePension);
+  },
   async share() {
     const k = E.scores(s);
     const text = U.end.shareText(E.ending(s).title, E.fmt(E.netWorth(s)), s.mc.netPct);

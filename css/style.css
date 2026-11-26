@@ -388,3 +388,12 @@ body.shake #app { animation: shake 0.45s both; }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
 @media (prefers-reduced-motion: reduce) { body.shake #app { animation: none; } }
 .home .sheet { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+
+/* 結果圖卡的預覽 */
+.cardview { position: fixed; inset: 0; z-index: 40; background: rgba(20, 16, 40, 0.86); display: flex; align-items: center; justify-content: center; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); overflow: auto; }
+.cardbox { width: 100%; max-width: 420px; display: grid; gap: 10px; justify-items: center; margin: auto; }
+.cardbox img { width: 100%; max-height: 62vh; object-fit: contain; border-radius: 18px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); -webkit-touch-callout: default; }
+.cardbox p { color: #fff; opacity: 0.85; text-align: center; margin: 0; }
+.cardbtns { width: 100%; display: grid; gap: 8px; }
+.cardbtns .btn { text-align: center; text-decoration: none; display: block; }
+.cardbtns .btn.ghost { color: #fff; }

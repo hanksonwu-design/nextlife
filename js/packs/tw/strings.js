@@ -191,6 +191,24 @@ export const ui = {
   status: { single: '單身', partner: '交往中', married: '已婚' },
   avatars: { m: '阿哲', f: '小安' },
 
+  card: {
+    save: '存成圖片',
+    share: '分享圖片',
+    download: '下載圖片',
+    close: '關閉',
+    alt: '結果圖卡',
+    hint: '也可以長按圖片儲存。圖片裡有你的財務數字,分享前請確認。',
+    fail: '圖片沒有產生成功,請再試一次',
+    score: '綜合分數',
+    note: '依官方統計與歷史資料做的試算,不是保證,也不是個別的投資建議。',
+    need: '退休後每月想花',
+    gap: '每月還缺',
+    gapNone: '不缺',
+    at65: '65 歲時存款加投資',
+    fileEnd: '下一步人生-結局',
+    filePension: '下一步人生-退休試算',
+  },
+
   audio: { label: '聲音', all: '音樂和音效都開', sfx: '只開音效,關掉音樂', off: '靜音' },
 
   home: {
