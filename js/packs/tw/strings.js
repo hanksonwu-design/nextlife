@@ -367,6 +367,9 @@ export const ui = {
     effect: '對遊戲的影響',
     start: '開始推演',
     resume: '繼續推演',
+    back: '← 返回上一題',
+    backForm: '← 返回修改資料',
+    redo: '← 返回上一題重新作答',
   },
 
   plan: {

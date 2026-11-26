@@ -80,7 +80,7 @@ document.documentElement.lang = P.lang;
 document.title = U.appName;
 let view = 'home';
 let draft = null;
-let quiz = null; // { id, i, answers, result }
+let quiz = null; // { id, i, answers, picks, result };picks 是每題選了第幾個選項(返回上一題時標出來)
 let formError = '';
 let planPicks = []; // 年度計畫畫面目前勾選的習慣
 
@@ -380,7 +380,9 @@ const VIEWS = {
       <p class="small muted">${U.quiz.progress(quiz.i + 1, Q.questions.length)}</p>
       <h2>${item.q}</h2>
     </section>
-    <div class="stack">${item.a.map(([label], i) => `<button class="btn pop" style="--i:${i}" data-act="answer" data-i="${i}">${label}</button>`).join('')}</div>
+    <div class="stack">${item.a.map(([label], i) => `<button class="btn pop ${quiz.picks[quiz.i] === i ? 'picked' : ''}" style="--i:${i}" data-act="answer" data-i="${i}" ${quiz.picks[quiz.i] === i ? 'aria-current="true"' : ''}>${label}</button>`).join('')}</div>
+    ${quiz.i > 0 ? `<button class="btn ghost" data-act="quizBack">${U.quiz.back}</button>`
+      : quiz.id === 'risk' ? `<button class="btn ghost" data-act="quizBack">${U.quiz.backForm}</button>` : ''}
     <p class="small muted">${U.quiz.disclaimer}</p>`;
   },
 
@@ -396,7 +398,8 @@ const VIEWS = {
       <h3>${U.quiz.effect}</h3>
       <p>${r.desc}</p>
     </section>
-    <button class="btn primary" data-act="quizDone">${quiz.id === 'risk' ? U.quiz.start : U.quiz.resume}</button>`;
+    <button class="btn primary" data-act="quizDone">${quiz.id === 'risk' ? U.quiz.start : U.quiz.resume}</button>
+    <button class="btn ghost" data-act="quizBack">${U.quiz.redo}</button>`;
   },
 
   // 開局預測:還沒開始玩之前,先告訴玩家十年後大概會落在哪裡
@@ -698,10 +701,15 @@ function fanChart(f, actual) {
     ${actual ? `<polyline points="${line(actual)}"></polyline>` : ''}</svg>`;
 }
 
+// 日常誤差:一個月的收入(發薪日前後、年終入帳月份造成的落差大約就是這個量級)
+function realSlack() {
+  return Number(real.profile.income) || 0;
+}
+
 // 一筆回填和當初預測的比較
 function realVerdict(e) {
   const t = yearsBetween(real.date, e.date);
-  const x = E.bandAt(real.start, real.band, t);
+  const x = E.bandAt(real.start, real.band, t, realSlack());
   const key = e.savings > x.p90 ? 'above' : e.savings < x.p10 ? 'below' : 'inside';
   return { t, x, key, cls: key === 'below' ? 'down' : 'up' };
 }
@@ -710,17 +718,20 @@ function realVerdict(e) {
 function realChart() {
   const W = 300, H = 150, M = 8;
   const n = real.band.length;
-  const lo = [real.start, ...real.band.map((b) => b.p10)];
-  const mid = [real.start, ...real.band.map((b) => b.p50)];
-  const hi = [real.start, ...real.band.map((b) => b.p90)];
+  // 每 0.1 年取一點,色帶才畫得出一年以內「先快後慢」變寬的形狀
+  const ts = Array.from({ length: n * 10 + 1 }, (_, i) => i / 10);
+  const at = ts.map((t) => E.bandAt(real.start, real.band, t, realSlack()));
+  const lo = at.map((b) => b.p10);
+  const mid = at.map((b) => b.p50);
+  const hi = at.map((b) => b.p90);
   const pts = [[0, real.start], ...real.entries.map((e) => [Math.min(n, yearsBetween(real.date, e.date)), e.savings])];
   const all = [...lo, ...hi, ...pts.map((p) => p[1])];
   const min = Math.min(...all), max = Math.max(...all);
   const span = max - min || 1;
   const X = (t) => (M + (t * (W - 2 * M)) / n).toFixed(1);
   const Y = (v) => (H - M - ((v - min) / span) * (H - 2 * M)).toFixed(1);
-  const line = (arr) => arr.map((v, i) => `${X(i)},${Y(v)}`).join(' ');
-  const band = `${line(hi)} ${lo.map((v, i) => `${X(i)},${Y(v)}`).reverse().join(' ')}`;
+  const line = (arr) => arr.map((v, i) => `${X(ts[i])},${Y(v)}`).join(' ');
+  const band = `${line(hi)} ${lo.map((v, i) => `${X(ts[i])},${Y(v)}`).reverse().join(' ')}`;
   return `<svg class="chart fan" viewBox="0 0 ${W} ${H}" role="img" aria-label="${U.real.chartAria}">
     <polygon class="band" points="${band}"></polygon><polyline class="mid" points="${line(mid)}"></polyline>
     <polyline points="${pts.map(([t, v]) => `${X(t)},${Y(v)}`).join(' ')}"></polyline>
@@ -837,7 +848,7 @@ function yearIntro() {
 function beginTurn() {
   const key = E.QUIZ_TURNS[s.turn];
   if (key && !s[key]) {
-    quiz = { id: key, i: 0, answers: [], result: null };
+    quiz = { id: key, i: 0, answers: [], picks: [], result: null };
     view = 'quiz';
   } else {
     if (!s.pending && !s.last) {
@@ -890,13 +901,26 @@ const ACTIONS = {
   },
   answer({ i }) {
     const Q = QUIZZES[quiz.id];
-    quiz.answers.push(Q.questions[quiz.i].a[+i][1]);
+    quiz.answers[quiz.i] = Q.questions[quiz.i].a[+i][1];
+    quiz.picks[quiz.i] = +i;
     quiz.i += 1;
     if (quiz.i >= Q.questions.length) {
       quiz.result = Q.score(quiz.answers);
       view = 'quizResult';
     }
     buzz(10);
+    render();
+  },
+  // 返回上一題(之前選的答案會標出來,可以改選);開局測驗的第一題則回到填資料的畫面
+  quizBack() {
+    if (quiz.i > 0) {
+      quiz.i -= 1;
+      quiz.result = null;
+      view = 'quiz';
+    } else if (quiz.id === 'risk') {
+      quiz = null;
+      view = 'create';
+    }
     render();
   },
   quizDone() {
@@ -1028,7 +1052,7 @@ app.addEventListener('submit', (ev) => {
     : !(draft.savings >= P.form.savings.min) ? U.create.errSavings
     : '';
   if (formError) return render();
-  quiz = { id: 'risk', i: 0, answers: [], result: null };
+  quiz = { id: 'risk', i: 0, answers: [], picks: [], result: null };
   view = 'quiz';
   render();
 });

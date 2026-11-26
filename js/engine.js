@@ -787,14 +787,23 @@ export function forecastOf(r) {
   probs.push({ id: 'neg', p: share((v) => v < 0) });
   return { n: r.nets.length, start: r.start, p10: r.netP10, p50: r.netP50, p90: r.netP90, band: r.band, probs };
 }
-// 預測範圍在第 t 年(可以是小數,例如 1.5 年)的位置:相鄰兩年之間用直線內插,超過最後一年就停在最後一年
-export function bandAt(start, band, t) {
+// 預測範圍在第 t 年(可以是小數,例如 0.5 年)的位置,超過最後一年就停在最後一年。
+// 中間值:相鄰兩年之間用直線內插(存錢是每個月穩定累積的)。
+// 上下的寬度:用「寬度的平方」內插。市場波動是隨機累積的,寬度跟時間的平方根成正比,
+//   所以半年的寬度約是一年的 71%,不是 50%;直線內插會讓一年以內的範圍太窄。
+// slack:不管過多久都存在的日常誤差(發薪日前後、年終入帳的月份、信用卡結帳日),和上面的寬度平方相加。
+export function bandAt(start, band, t, slack = 0) {
   const pts = [{ p10: start, p50: start, p90: start }, ...band];
   const x = Math.max(0, Math.min(band.length, t));
   const i = Math.min(band.length - 1, Math.floor(x));
   const f = x - i;
-  const mix = (k) => pts[i][k] + (pts[i + 1][k] - pts[i][k]) * f;
-  return { p10: mix('p10'), p50: mix('p50'), p90: mix('p90') };
+  const p50 = pts[i].p50 + (pts[i + 1].p50 - pts[i].p50) * f;
+  const width = (k) => {
+    const a = (pts[i][k] - pts[i].p50) ** 2;
+    const b = (pts[i + 1][k] - pts[i + 1].p50) ** 2;
+    return Math.sqrt(a + (b - a) * f + slack * slack);
+  };
+  return { p10: p50 - width('p10'), p50, p90: p50 + width('p90') };
 }
 
 // 某個目標實際上有沒有達成
