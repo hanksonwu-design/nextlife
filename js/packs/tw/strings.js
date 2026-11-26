@@ -89,6 +89,7 @@ export const t = {
   // 年度結算
   salary: (income) => `薪資 ${income} × 12 個月`,
   bonus: (months) => `年終 ${months} 個月(受職涯分數影響)`,
+  spouseSalary: (income) => `配偶薪資 ${income} × 12 個月`,
   spend: (expense) => `生活支出 ${expense} × 12 個月`,
   deduct: (tax, ins) => `所得稅 ${tax}、勞健保費 ${ins}`,
   loanPay: (interest) => `房貸本息(其中利息 ${interest})`,
@@ -325,6 +326,8 @@ export const ui = {
     needOpt: (v) => (v === 1 ? '和現在一樣' : v < 1 ? `少 ${Math.round((1 - v) * 100)}%` : `多 ${Math.round((v - 1) * 100)}%`),
     needRow: '退休後每月想花',
     gotRow: '勞保加勞退每月給你',
+    spouseRow: '配偶的勞保加勞退',
+    spouseNote: '配偶的部分只知道收入,所以當成和你同年齡、23 歲開始工作的一般受僱者來估,而且沒有自提。',
     gapRow: '每月還缺',
     gapNone: '不缺',
     lumpRow: (age) => `用到 ${age} 歲,自己要準備`,
@@ -489,6 +492,9 @@ export const ui = {
     income: '稅前月收入(萬)',
     expense: '月支出(萬)',
     savings: '存款加投資合計(萬)',
+    spouseIncome: '配偶稅前月收入(萬,沒有就填 0)',
+    spouseNote: '有填配偶收入的話,月支出和存款請填全家合計。',
+    errSpouse: '配偶收入請填 0 以上的數字。',
     status: '感情狀態',
     county: '居住縣市(決定房價)',
     counties: {

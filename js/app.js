@@ -303,6 +303,7 @@ const VIEWS = {
       <ul class="lines">
         <li><span>${N.needRow}</span><span class="num">${E.fmt(G.need)}</span></li>
         <li><span>${N.gotRow}</span><span class="num">${rng(p.lo.total, p.hi.total)}</span></li>
+        ${p.spouse ? `<li><span>${N.spouseRow}</span><span class="num">${rng(p.spouse.lo, p.spouse.hi)}</span></li>` : ''}
         <li><span>${N.gapRow}</span><span class="num">${G.worst.monthly <= 0 ? N.gapNone : rng(G.best.monthly, G.worst.monthly)}</span></li>
         ${G.worst.monthly > 0 ? `<li><span>${N.lumpRow(p.planAge)}</span><span class="num">${rng(G.best.lump, G.worst.lump)}</span></li>
         <li><span>${N.ownRow}</span><span class="num">${rng(G.worst.own, G.best.own)}</span></li>` : ''}
@@ -310,6 +311,7 @@ const VIEWS = {
       <p class="${verdict[0]}"><b>${verdict[1]}</b></p>
       ${G.surplus < 0 ? `<p class="small down">${N.surplusNeg}</p>` : ''}
       <p class="small muted">${N.gapNote}</p>
+      ${p.spouse ? `<p class="small muted">${N.spouseNote}</p>` : ''}
     </section>
     ${long && long.main.years > 0 ? `<section class="panel stack">
       <h3>${N.longTitle(P.pensionRules.claimAge)}</h3>
@@ -509,6 +511,8 @@ const VIEWS = {
           <label>${C.expense}<input type="number" name="expense" inputmode="decimal" step="${F.expense.step}" min="${F.expense.min}" value="${d.expense}"></label>
         </div>
         <label>${C.savings}<input type="number" name="savings" inputmode="decimal" step="${F.savings.step}" min="${F.savings.min}" value="${d.savings}"></label>
+        <label>${C.spouseIncome}<input type="number" name="spouseIncome" inputmode="decimal" step="${F.income.step}" min="0" value="${d.spouseIncome || 0}"></label>
+        <p class="small muted">${C.spouseNote}</p>
         <label>${C.county}<select name="county">${opt(C.counties, d.county)}</select></label>
         <div class="grid2">
           <label>${C.status}<select name="status">${opt(U.status, d.status)}</select></label>
@@ -1429,6 +1433,7 @@ app.addEventListener('submit', (ev) => {
   Object.assign(draft, {
     avatar: f.get('avatar') || 'm',
     age: Math.round(n('age')), industry: f.get('industry'), income: n('income'), expense: n('expense'), savings: n('savings'),
+    spouseIncome: f.get('spouseIncome') === '' || f.get('spouseIncome') == null ? 0 : n('spouseIncome'),
     talent: E.talentUnlocked(meta, f.get('talent')) ? f.get('talent') : '',
     county: f.get('county') || 'all', status: f.get('status'), house: f.get('house'), rCareer: n('rCareer'), rHealth: n('rHealth'), rRelation: n('rRelation'), rMind: n('rMind'),
   });
@@ -1437,6 +1442,7 @@ app.addEventListener('submit', (ev) => {
     : !(draft.income >= P.form.income.min) ? U.create.errIncome(P.form.income.min)
     : !(draft.expense >= P.form.expense.min) ? U.create.errExpense(P.form.expense.min)
     : !(draft.savings >= P.form.savings.min) ? U.create.errSavings
+    : !(draft.spouseIncome >= 0) ? U.create.errSpouse
     : '';
   if (formError) return render();
   quiz = { id: 'risk', i: 0, answers: [], picks: [], result: null };

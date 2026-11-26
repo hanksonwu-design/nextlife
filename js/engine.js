@@ -37,7 +37,7 @@ export function housePrice(s) {
   // 房價所得比的分母是「家戶」所得。只拿個人年薪去乘,單身或收入較低的人會算出買不到的便宜房子,
   // 所以至少是當地的中位數房價(房價所得比 × 家戶可支配所得中位數);收入更高的人則依自己的年薪往上。
   const typical = ratio * (P.econ.householdIncome || 0);
-  return Math.round(Math.max(s.income * 12 * ratio, typical));
+  return Math.round(Math.max((s.income + (s.spouse || 0)) * 12 * ratio, typical));
 }
 function loanPayment(balance, years) {
   const r = P.econ.loanRate;
@@ -81,6 +81,7 @@ export function newGame(profile, seed) {
     risk: profile.risk,
     income: profile.income,
     incomeRef: profile.income,
+    spouse: Math.max(0, Number(profile.spouseIncome) || 0), // 配偶的稅前月收入(沒有就是 0);有填的話支出和存款是全家的
     expense: profile.expense,
     cash: profile.savings * (1 - risk.share),
     invest: profile.savings * risk.share,
@@ -474,6 +475,8 @@ export function settleYear(s) {
   let loanPay = 0;
   L.push({ text: T.salary(fmt(s.income)), value: salary });
   if (bonus > 0) L.push({ text: T.bonus(bonusMonths.toFixed(1)), value: bonus });
+  const spouseSalary = (s.spouse || 0) * 12;
+  if (spouseSalary > 0) L.push({ text: T.spouseSalary(fmt(s.spouse)), value: spouseSalary });
   L.push({ text: T.spend(fmt(s.expense)), value: -spend });
   if (s.loan) {
     loanPay = Math.min(s.loan.yearly, s.loan.balance * (1 + X.loanRate));
@@ -493,10 +496,12 @@ export function settleYear(s) {
   let withheld = 0;
   if (P.deductions) {
     const d = P.deductions({ income: s.income, bonus, industry: s.industry, kids: s.kids });
-    withheld = d.total;
-    L.push({ text: T.deduct(fmt(d.tax), fmt(d.insurance)), value: -withheld });
+    // 配偶各自計稅、各自繳保費(小孩都算在本人名下)
+    const sp = s.spouse > 0 ? P.deductions({ income: s.spouse, bonus: 0, industry: null, kids: 0 }) : { tax: 0, insurance: 0, total: 0 };
+    withheld = d.total + sp.total;
+    L.push({ text: T.deduct(fmt(d.tax + sp.tax), fmt(d.insurance + sp.insurance)), value: -withheld });
   }
-  const surplus = salary + bonus - spend - loanPay - gifts - withheld;
+  const surplus = salary + bonus + spouseSalary - spend - loanPay - gifts - withheld;
 
   // 投資報酬
   // 理財功課:每一級讓平均報酬高一點;3 級起懂得分散,單年最多虧 20%
@@ -578,6 +583,7 @@ export function settleYear(s) {
   // 明年的薪資與物價
   const g = ind.growth + ((a.career - 50) / 50) * 0.02 + ageGrowth(s) + (perk(s, 'study', 5) ? 0.01 : 0) + ind.vol * gauss(s);
   s.income *= 1 + g;
+  if (s.spouse > 0) s.spouse *= 1 + (X.spouseGrowth ?? X.inflation);
   s.expense *= 1 + X.inflation;
   N.push({ text: T.nextIncome(pct(g), fmt(s.income)), tone: g >= 0 ? 'up' : 'down' });
   N.push({ text: T.inflation(pct(X.inflation), fmt(s.expense)), tone: 'info' });
@@ -879,7 +885,7 @@ export function advise(profile, n = 300, seed = 2024) {
   return {
     base,
     levers,
-    saveRate: (profile.income - profile.expense) / profile.income, // 儲蓄率(不含年終)
+    saveRate: (profile.income + (Number(profile.spouseIncome) || 0) - profile.expense) / (profile.income + (Number(profile.spouseIncome) || 0)), // 儲蓄率(不含年終;有配偶收入就算全家的)
     cashMonths: profile.expense > 0 ? (profile.savings * (1 - share)) / profile.expense : 99, // 存款夠付幾個月支出
     stockShare: share,
   };
@@ -933,6 +939,7 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
       }
       const bonus = s.income * ind.bonus * (0.6 + (0.8 * s.attrs.career) / 100);
       const selfPay = opts.self ? Math.min(s.income, opts.selfCap ?? Infinity) * opts.self * 12 : 0;
+      const spouseNet = s.spouse > 0 ? s.spouse * 12 - (P.deductions ? P.deductions({ income: s.spouse, bonus: 0, industry: null, kids: 0 }).total : 0) : 0;
       const withheld = P.deductions ? P.deductions({ income: s.income, bonus, industry: s.industry, kids: kidPay > 0 ? 1 : 0, self: opts.self || 0 }).total : 0;
       let loanPay = 0;
       if (s.loan) {
@@ -941,7 +948,7 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
         s.loan.years -= 1;
         if (s.loan.years <= 0 || s.loan.balance < 0.5) s.loan = null;
       }
-      const surplus = s.income * 12 + bonus - s.expense * 12 - kidPay * 12 - loanPay - withheld - selfPay;
+      const surplus = s.income * 12 + bonus + spouseNet - s.expense * 12 - kidPay * 12 - loanPay - withheld - selfPay;
       if (s.house) s.houseValue *= 1 + X.houseGrowth;
       const base = hist ? hist[Math.floor(rand(s) * hist.length)] + shift : risk.mean + risk.sd * gauss(s);
       s.invest *= 1 + clamp(base, -0.45, 0.9);
@@ -959,6 +966,7 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
       }
       const g = ind.growth + ageGrowth(s) + ind.vol * gauss(s);
       s.income *= 1 + g;
+      if (s.spouse > 0) s.spouse *= 1 + (X.spouseGrowth ?? X.inflation);
       s.expense *= 1 + X.inflation;
       const rise = s.income / s.incomeRef - 1 - X.inflation;
       if (rise > 0.005) s.expense *= 1 + rise * X.creep;

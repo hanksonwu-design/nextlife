@@ -93,6 +93,16 @@ export function pension(profile, opts, econ, industries, risk) {
   const lo = account(R.fundReturnLow);
   const hi = account(R.fundReturn);
 
+  // ---- 配偶的勞保加勞退 ----
+  // 只知道配偶的收入,所以當成和你同年齡、23 歲開始工作的一般受僱者來估(不自提)。
+  let spouse = null;
+  const spIncome = Number(profile.spouseIncome) || 0;
+  if (spIncome > 0 && !opts.isSpouse) {
+    const sp = pension({ ...profile, industry: 'service', income: spIncome, spouseIncome: 0, expense: 0, savings: 0 }, { isSpouse: true }, econ, industries, risk);
+    spouse = { lo: sp.lo.total, hi: sp.hi.total };
+  }
+  const spDed = spIncome > 0 ? deductions({ income: spIncome, bonus: 0, industry: null, kids: 0 }).total : 0;
+
   // ---- 自願提繳:每月少領多少、每年少繳多少稅 ----
   const bonus = profile.income * industries[profile.industry].bonus;
   const kids = 0;
@@ -107,7 +117,7 @@ export function pension(profile, opts, econ, industries, risk) {
   //   保守:只跟得上物價;樂觀:股票部位每年實質 5%、其餘放定存。
   const need = profile.expense * (opts.need || 1);
   const spanYears = R.planAge - R.claimAge;
-  const surplus = profile.income * 12 + bonus - profile.expense * 12 - dedSelf.total - selfCost * 12; // 一年
+  const surplus = profile.income * 12 + bonus + spIncome * 12 - spDed - profile.expense * 12 - dedSelf.total - selfCost * 12; // 一年
   const share = risk[profile.risk] ? risk[profile.risk].share : 0;
   const ownRealHigh = share * R.stockReal + (1 - share) * ((1 + econ.cashRate) / (1 + econ.inflation) - 1);
   const grow = (r) => {
@@ -122,8 +132,8 @@ export function pension(profile, opts, econ, industries, risk) {
     return v;
   };
   // opts.own:{ worst, best } 外面用完整模型算好的「65 歲時自己有多少」;沒給才用上面的簡單算法
-  const side = (pen, r, given) => {
-    const monthly = Math.max(0, need - pen.total); // 每月缺口
+  const side = (pen, r, given, fromSpouse) => {
+    const monthly = Math.max(0, need - pen.total - fromSpouse); // 每月缺口
     const lump = monthly * 12 * spanYears; // 65 歲時要準備好的錢(退休後假設只跟得上物價)
     const own = given != null ? Math.max(0, given) : grow(r);
     const short = Math.max(0, lump - own);
@@ -131,13 +141,13 @@ export function pension(profile, opts, econ, industries, risk) {
   };
   const gap = {
     need, spanYears, surplus,
-    worst: side(lo, R.ownRealLow, opts.own && opts.own.worst), // 勞退只有保證收益、自己的錢在範圍的低點
-    best: side(hi, ownRealHigh, opts.own && opts.own.best), // 勞退維持近十年平均、自己的錢在範圍的高點
+    worst: side(lo, R.ownRealLow, opts.own && opts.own.worst, spouse ? spouse.lo : 0), // 勞退只有保證收益、自己的錢在範圍的低點
+    best: side(hi, ownRealHigh, opts.own && opts.own.best, spouse ? spouse.hi : 0), // 勞退維持近十年平均、自己的錢在範圍的高點
   };
 
   return {
     worked, left, liYears, liWage, liBase, li, finalWage, lo, hi,
-    selfCost, taxSaved, gap, free,
+    selfCost, taxSaved, gap, free, spouse,
     payYears: R.lifeAtClaim,
     planAge: R.planAge,
   };
