@@ -84,7 +84,9 @@ let view = 'home';
 let draft = null;
 let advice = null; // { key, data }:財務建議的計算結果(依起點快取)
 let pen = null; // 退休金試算:{ from, years, self }
-let lab = null; // 組合試算:{ from, change: { expense, income, risk }, cache: {} }
+let lab = null;
+const GUIDE_KEY = 'nextlife.guide.v1'; // 看過使用說明了沒
+let guideNext = false; // 使用說明是不是從「開始」進來的(是的話下面放「開始填資料」) // 組合試算:{ from, change: { expense, income, risk }, cache: {} }
 let quiz = null; // { id, i, answers, picks, result };picks 是每題選了第幾個選項(返回上一題時標出來)
 let formError = '';
 let planPicks = []; // 年度計畫畫面目前勾選的習慣
@@ -262,6 +264,7 @@ const VIEWS = {
           ${metaChips()}
           <button class="btn" data-act="album" style="text-align:center">${U.meta.open}</button>
         </section>` : ''}
+        <button class="btn ghost" data-act="guide" style="text-align:center">${U.guide.open}</button>
         <button class="btn ghost" data-act="sources" style="text-align:center">${U.sources.open}</button>
         <button class="btn ghost" data-act="policy" style="text-align:center">${U.policy.open}</button>
         <p class="small muted">${U.home.privacy}</p>
@@ -444,6 +447,18 @@ const VIEWS = {
     <p class="small muted">${R.privacy}</p>
     <button class="btn primary" data-act="home">${R.back}</button>
     <button class="btn ghost" data-act="untrack" style="text-align:center">${R.remove}</button>`;
+  },
+
+  // 使用說明:第一次按「開始」時先看一次,之後從首頁也能再打開
+  guide() {
+    const G = U.guide;
+    return `<h2>${G.title}</h2>
+    <p class="muted">${G.lead}</p>
+    <ol class="steps">${G.steps.map(([h, d], i) => `<li class="panel"><span class="stepno num">${i + 1}</span><div class="stack"><b>${h}</b><span class="small muted">${d}</span></div></li>`).join('')}</ol>
+    <p class="small muted">${G.extra}</p>
+    <p class="small muted">${G.note}</p>
+    ${guideNext ? `<button class="btn primary" data-act="guideGo" style="text-align:center">${G.start}</button>` : ''}
+    <button class="btn ${guideNext ? 'ghost' : 'primary'}" data-act="home" style="text-align:center">${G.back}</button>`;
   },
 
   // 隱私權政策:資料只存在裝置上,並提供一鍵清除
@@ -1264,7 +1279,20 @@ const ACTIONS = {
     } catch { /* 無法存取儲存空間時,本來就沒有資料 */ }
     location.reload();
   },
+  guide() { guideNext = false; view = 'guide'; render(); },
+  guideGo() {
+    try { localStorage.setItem(GUIDE_KEY, '1'); } catch { /* 存不了就下次再顯示一次 */ }
+    ACTIONS.new();
+  },
   new() {
+    // 第一次開始前,先看一次使用說明
+    let seen = true;
+    try { seen = !!localStorage.getItem(GUIDE_KEY) || meta.runs > 0 || !!s; } catch { /* 讀不到就不擋 */ }
+    if (!seen && view !== 'guide') {
+      guideNext = true;
+      view = 'guide';
+      return render();
+    }
     draft = { ...P.form.defaults, talent: '' };
     formError = '';
     view = 'create';
