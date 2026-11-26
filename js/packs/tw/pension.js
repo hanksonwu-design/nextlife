@@ -121,17 +121,18 @@ export function pension(profile, opts, econ, industries, risk) {
     for (let y = 0; y < left; y++) v = v * (1 + r) + 1;
     return v;
   };
-  const side = (pen, r) => {
+  // opts.own:{ worst, best } 外面用完整模型算好的「65 歲時自己有多少」;沒給才用上面的簡單算法
+  const side = (pen, r, given) => {
     const monthly = Math.max(0, need - pen.total); // 每月缺口
     const lump = monthly * 12 * spanYears; // 65 歲時要準備好的錢(退休後假設只跟得上物價)
-    const own = grow(r);
+    const own = given != null ? Math.max(0, given) : grow(r);
     const short = Math.max(0, lump - own);
     return { monthly, lump, own, short, saveMore: left > 0 && short > 0 ? short / perUnit(r) / 12 : 0 };
   };
   const gap = {
     need, spanYears, surplus,
-    worst: side(lo, R.ownRealLow), // 勞退只有保證收益、自己的錢只跟得上物價
-    best: side(hi, ownRealHigh), // 勞退維持近十年平均、自己的錢照配置成長
+    worst: side(lo, R.ownRealLow, opts.own && opts.own.worst), // 勞退只有保證收益、自己的錢在範圍的低點
+    best: side(hi, ownRealHigh, opts.own && opts.own.best), // 勞退維持近十年平均、自己的錢在範圍的高點
   };
 
   return {

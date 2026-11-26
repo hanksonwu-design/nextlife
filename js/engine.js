@@ -885,6 +885,69 @@ export function advise(profile, n = 300, seed = 2024) {
   };
 }
 
+// ---------- 到退休的長期試算 ----------
+// 十年推演是遊戲(有事件卡、養成、分數);這裡只算錢,一路算到 toAge 歲,用來回答「退休時手上有多少」。
+// 每年:薪資 + 年終 − 生活支出 − 房貸 − 稅與保費,結餘依投資配置分到股票和定存;
+//       薪資依產業行情和年齡調整,支出跟著物價和收入升級。沒有人生事件(買房、小孩、失業)。
+// 回傳的金額是「存款加投資」,而且換算成現在的購買力。
+// opts.stockMean:股票部位的長期平均報酬(名目)。有給的話,保留歷史各年的漲跌形狀,但把平均平移到這個數字;
+//                 沒給就直接用歷史年份。opts.self / opts.selfCap:退休金自願提繳率與月提繳工資上限。
+export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
+  const X = P.econ;
+  const hist = X.stockReturns;
+  const years = Math.max(0, Math.round(toAge - profile.age));
+  const shift = hist && opts.stockMean != null ? opts.stockMean - hist.reduce((a, b) => a + b, 0) / hist.length : 0;
+  const yearly = Array.from({ length: years }, () => []);
+  let start = 0;
+  for (let i = 0; i < n; i++) {
+    const s = newGame({ ...profile, talent: '' }, (seed + i * 7919) | 0);
+    const ind = P.industries[s.industry];
+    const risk = P.risk[s.risk];
+    start = s.cash + s.invest;
+    for (let t = 0; t < years; t++) {
+      const bonus = s.income * ind.bonus * (0.6 + (0.8 * s.attrs.career) / 100);
+      const selfPay = opts.self ? Math.min(s.income, opts.selfCap ?? Infinity) * opts.self * 12 : 0;
+      const withheld = P.deductions ? P.deductions({ income: s.income, bonus, industry: s.industry, kids: 0, self: opts.self || 0 }).total : 0;
+      let loanPay = 0;
+      if (s.loan) {
+        loanPay = Math.min(s.loan.yearly, s.loan.balance * (1 + X.loanRate));
+        s.loan.balance -= loanPay - s.loan.balance * X.loanRate;
+        s.loan.years -= 1;
+        if (s.loan.years <= 0 || s.loan.balance < 0.5) s.loan = null;
+      }
+      const surplus = s.income * 12 + bonus - s.expense * 12 - loanPay - withheld - selfPay;
+      const base = hist ? hist[Math.floor(rand(s) * hist.length)] + shift : risk.mean + risk.sd * gauss(s);
+      s.invest *= 1 + clamp(base, -0.45, 0.9);
+      s.cash *= 1 + (s.cash > 0 ? X.cashRate : X.debtRate);
+      if (surplus >= 0) {
+        s.invest += surplus * risk.share;
+        s.cash += surplus * (1 - risk.share);
+      } else {
+        s.cash += surplus;
+      }
+      if (s.cash < 0 && s.invest > 0) {
+        const take = Math.min(s.invest, -s.cash);
+        s.invest -= take;
+        s.cash += take;
+      }
+      const g = ind.growth + ageGrowth(s) + ind.vol * gauss(s);
+      s.income *= 1 + g;
+      s.expense *= 1 + X.inflation;
+      const rise = s.income / s.incomeRef - 1 - X.inflation;
+      if (rise > 0.005) s.expense *= 1 + rise * X.creep;
+      s.incomeRef = s.income;
+      s.age += 1;
+      yearly[t].push((s.cash + s.invest) / Math.pow(1 + X.inflation, t + 1));
+    }
+  }
+  const q = (arr, p) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))];
+  const band = yearly.map((v) => {
+    v.sort((x, y) => x - y);
+    return { p10: q(v, 0.1), p50: q(v, 0.5), p90: q(v, 0.9) };
+  });
+  return { start, years, band, last: band.length ? band[band.length - 1] : { p10: start, p50: start, p90: start } };
+}
+
 // 某個目標實際上有沒有達成
 export function probHit(pr, start, net) {
   if (pr.id === 'grow') return net > start;

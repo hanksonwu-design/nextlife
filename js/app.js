@@ -236,7 +236,8 @@ const VIEWS = {
   // 退休金試算:勞保年金 + 勞退專戶,可以調已工作年資和自願提繳
   pension() {
     const N = U.pension;
-    const p = P.pension(realProfile(), { years: pen.years, self: pen.self, need: pen.need, liBase: pen.liBase });
+    const long = getLong();
+    const p = P.pension(realProfile(), { years: pen.years, self: pen.self, need: pen.need, liBase: pen.liBase, own: long && { worst: long.main.last.p10, best: long.main.last.p90 } });
     if (p.na) {
       return `<h2>${N.title}</h2>
       <section class="panel stack"><p>${N.naPublic}</p></section>
@@ -284,6 +285,15 @@ const VIEWS = {
       ${G.surplus < 0 ? `<p class="small down">${N.surplusNeg}</p>` : ''}
       <p class="small muted">${N.gapNote}</p>
     </section>
+    ${long && long.main.years > 0 ? `<section class="panel stack">
+      <h3>${N.longTitle(P.pensionRules.claimAge)}</h3>
+      ${longChart(long.main)}
+      <div class="row small muted"><span>${N.longAxis(s.profile.age, P.pensionRules.claimAge)[0]}</span><span>${N.longAxis(s.profile.age, P.pensionRules.claimAge)[1]}</span></div>
+      <div class="title range num">${rng(long.main.last.p10, long.main.last.p90)}</div>
+      <p class="small muted">${N.longMid(E.fmt(long.main.last.p50))}</p>
+      <p class="small muted">${N.longNote}</p>
+      <p class="small muted">${N.longHist(E.fmt(long.hist.last.p50))}</p>
+    </section>` : ''}
     <section class="panel stack">
       <div class="row"><span>${N.yearsLabel}</span>
         <span class="stepper"><button data-act="penYears" data-d="-1" aria-label="−1">−</button><b class="num">${N.yearsValue(p.worked)}</b><button data-act="penYears" data-d="1" aria-label="+1">+</button></span></div>
@@ -872,6 +882,36 @@ function labResult(change) {
   return lab.cache[key];
 }
 // 兩條橫條:上面是現在的做法,下面是這個組合;橫條是八成範圍,直線是中間值
+// 到退休的長期試算(退休金頁用)。依自願提繳率快取,因為自提會讓每年的結餘變少。
+function getLong() {
+  const R = P.pensionRules;
+  if (!R || !E.projectLong || s.profile.industry === 'public') return null;
+  const key = `${pen.self}`;
+  if (!pen.long || pen.long.key !== key) {
+    const prof = realProfile();
+    const o = { self: pen.self, selfCap: R.lpCap };
+    pen.long = {
+      key,
+      main: E.projectLong(prof, R.claimAge, 300, 2024, { ...o, stockMean: (1 + R.stockReal) * (1 + P.econ.inflation) - 1 }),
+      hist: E.projectLong(prof, R.claimAge, 300, 2024, o),
+    };
+  }
+  return pen.long;
+}
+function longChart(r) {
+  const W = 300, H = 130, M = 8;
+  const pts = [{ p10: r.start, p50: r.start, p90: r.start }, ...r.band];
+  const all = pts.flatMap((b) => [b.p10, b.p90]);
+  const min = Math.min(0, ...all), max = Math.max(...all);
+  const span = max - min || 1;
+  const X = (i) => (M + (i * (W - 2 * M)) / (pts.length - 1)).toFixed(1);
+  const Y = (v) => (H - M - ((v - min) / span) * (H - 2 * M)).toFixed(1);
+  const line = (k) => pts.map((b, i) => `${X(i)},${Y(b[k])}`).join(' ');
+  const band = `${line('p90')} ${pts.map((b, i) => `${X(i)},${Y(b.p10)}`).reverse().join(' ')}`;
+  return `<svg class="chart fan" viewBox="0 0 ${W} ${H}" role="img" aria-label="${U.pension.longAria(E.fmt(r.last.p10), E.fmt(r.last.p90))}">
+    <polygon class="band" points="${band}"></polygon><polyline class="mid" points="${line('p50')}"></polyline></svg>`;
+}
+
 function labChart(base, cur) {
   const W = 300, M = 8;
   const min = Math.min(base.p10, cur.p10, 0), max = Math.max(base.p90, cur.p90);
