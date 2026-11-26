@@ -806,6 +806,51 @@ export function bandAt(start, band, t, slack = 0) {
   return { p10: p50 - width('p10'), p50, p90: p50 + width('p90') };
 }
 
+// ---------- 情境試算與財務建議 ----------
+// 可以調整的三件事,每件三個檔位。支出和收入是相對現在的比例,投資配置是風險等級。
+export const LEVERS = { expense: [0, -0.1, -0.2], income: [0, 0.1, 0.2], risk: ['low', 'mid', 'high'] };
+
+// 把一組改變套到起點上(沒寫到的項目維持原樣)
+export function applyChange(profile, change = {}) {
+  return {
+    ...profile,
+    expense: Math.round(profile.expense * (1 + (change.expense || 0)) * 100) / 100,
+    income: Math.round(profile.income * (1 + (change.income || 0)) * 100) / 100,
+    risk: change.risk || profile.risk,
+  };
+}
+
+// 套用一組改變後重新模擬,回傳十年後淨資產的八成範圍。
+// 各情境都用同一個亂數種子,遇到的運氣(哪幾年股市好壞、抽到哪些事件)一樣,差距才是來自這組改變本身。
+export function scenario(profile, change, n = 500, seed = 2024) {
+  const r = simulate(applyChange(profile, change), n, seed);
+  return { start: r.start, p10: r.netP10, p50: r.netP50, p90: r.netP90, neg: r.nets.filter((v) => v < 0).length / r.nets.length };
+}
+
+// 財務建議用的數據:目前的幾個體質指標,以及「只改一件事」各自讓十年後差多少(依中間值的差距由大到小)
+export function advise(profile, n = 300, seed = 2024) {
+  const base = scenario(profile, {}, n, seed);
+  const levers = [];
+  for (const k of ['expense', 'income']) {
+    for (const v of LEVERS[k].slice(1)) levers.push({ k, v });
+  }
+  for (const v of LEVERS.risk) if (v !== profile.risk) levers.push({ k: 'risk', v });
+  for (const l of levers) {
+    const r = scenario(profile, { [l.k]: l.v }, n, seed);
+    l.d50 = r.p50 - base.p50;
+    l.d10 = r.p10 - base.p10;
+  }
+  levers.sort((a, b) => b.d50 - a.d50);
+  const share = P.risk[profile.risk].share;
+  return {
+    base,
+    levers,
+    saveRate: (profile.income - profile.expense) / profile.income, // 儲蓄率(不含年終)
+    cashMonths: profile.expense > 0 ? (profile.savings * (1 - share)) / profile.expense : 99, // 存款夠付幾個月支出
+    stockShare: share,
+  };
+}
+
 // 某個目標實際上有沒有達成
 export function probHit(pr, start, net) {
   if (pr.id === 'grow') return net > start;

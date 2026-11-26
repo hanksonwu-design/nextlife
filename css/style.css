@@ -339,3 +339,20 @@ details summary { cursor: pointer; font-size: 14px; font-weight: 700; color: var
 
 /* 問答題:返回上一題時,標出之前選的答案 */
 .btn.picked { border-color: var(--accent, #e0a100); box-shadow: inset 0 0 0 2px var(--accent, #e0a100); }
+
+/* 財務建議與組合試算 */
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.checks li { padding-left: 14px; border-left: 4px solid var(--up); }
+.checks li.down { border-left-color: var(--down); }
+.levers li { align-items: baseline; border-top: 1px solid var(--line); padding-top: 6px; flex-wrap: wrap; }
+.levers .up { color: var(--up); }
+.levers .down, p.down { color: var(--down); }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.seg button { font: inherit; font-weight: 600; color: var(--ink); background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 10px 4px; min-height: 44px; cursor: pointer; }
+.seg button.on { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.seg button small { display: block; font-weight: 500; font-size: 11px; color: var(--muted); }
+.chart.labchart { height: auto; aspect-ratio: 300 / 64; }
+.labchart .band { opacity: .55; }
+.labchart .band.base { opacity: .22; }
+.labchart .mid { stroke-dasharray: none; }
+.lines li span:last-child { text-align: right; }

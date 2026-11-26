@@ -80,6 +80,8 @@ document.documentElement.lang = P.lang;
 document.title = U.appName;
 let view = 'home';
 let draft = null;
+let advice = null; // { key, data }:財務建議的計算結果(依起點快取)
+let lab = null; // 組合試算:{ from, change: { expense, income, risk }, cache: {} }
 let quiz = null; // { id, i, answers, picks, result };picks 是每題選了第幾個選項(返回上一題時標出來)
 let formError = '';
 let planPicks = []; // 年度計畫畫面目前勾選的習慣
@@ -228,6 +230,39 @@ const VIEWS = {
         <p class="small muted">${U.home.privacy}</p>
       </div>
     </div>`;
+  },
+
+  // 組合試算:支出、收入、投資配置各選一檔,看十年後的範圍和現在的做法差多少
+  lab() {
+    const A = U.advice;
+    const p = s.profile;
+    const c = lab.change;
+    const base = labResult({ expense: 0, income: 0, risk: p.risk });
+    const cur = labResult(c);
+    const same = c.expense === 0 && c.income === 0 && c.risk === p.risk;
+    const np = E.applyChange(p, c);
+    const group = (k) => `<div class="stack"><div class="small muted">${A.group[k]}</div>
+      <div class="seg">${E.LEVERS[k].map((v) => {
+        const label = k === 'risk' ? A.opt.risk[v] : A.opt[k](v);
+        const isNow = k === 'risk' && v === p.risk;
+        return `<button class="${c[k] === v ? 'on' : ''}" data-act="labSet" data-k="${k}" data-v="${v}" aria-pressed="${c[k] === v}">${label}${isNow ? `<small>${A.now}</small>` : ''}</button>`;
+      }).join('')}</div></div>`;
+    const row = (label, r) => `<li><span>${label}</span><span class="num">${A.range(E.fmt(r.p10), E.fmt(r.p90))}<br><span class="small muted">${A.mid(E.fmt(r.p50))}</span></span></li>`;
+    return `<h2>${A.labTitle}</h2>
+    <p class="muted small">${A.labIntro}</p>
+    <section class="panel stack">
+      ${group('expense')}${group('income')}${group('risk')}
+      <p class="small muted num">${A.monthly(E.fmt(np.income), E.fmt(np.expense))}</p>
+    </section>
+    <section class="panel stack">
+      <h3>${A.resultTitle}</h3>
+      ${labChart(base, cur)}
+      <ul class="lines">${row(A.baseRow, base)}${same ? '' : row(A.newRow, cur)}</ul>
+      <p><b>${same ? A.same : A.diff(signed(cur.p50 - base.p50), signed(cur.p10 - base.p10))}</b></p>
+      ${cur.neg >= 0.05 ? `<p class="small down">${A.negLine(Math.round(cur.neg * 100))}</p>` : ''}
+    </section>
+    <p class="small muted">${A.disclaimer}</p>
+    <button class="btn" data-act="labBack" style="text-align:center">${A.back}</button>`;
   },
 
   // 真實進度:當初的預測範圍,和回填的實際數字
@@ -428,6 +463,7 @@ const VIEWS = {
     </section>
     <p class="small muted">${F.note}</p>
     <button class="btn primary" data-act="begin">${F.start}</button>
+    <button class="btn" data-act="lab" style="text-align:center">${U.advice.open}</button>
     <button class="btn" data-act="track" style="text-align:center">${U.real.track}</button>
     <p class="small muted">${U.real.trackNote}</p>`;
   },
@@ -599,6 +635,7 @@ const VIEWS = {
       <h3>${F.probsTitle}</h3>
       ${probList(f, net)}
     </section>
+    ${advicePanel()}
     <section class="panel stack">
       <div class="row"><h3>${U.meta.freshTitle}</h3><span class="small muted num">${U.meta.summary(meta.runs, meta.best)}</span></div>
       ${freshList()}
@@ -704,6 +741,64 @@ function fanChart(f, actual) {
 // 日常誤差:一個月的收入(發薪日前後、年終入帳月份造成的落差大約就是這個量級)
 function realSlack() {
   return Number(real.profile.income) || 0;
+}
+
+// ---------- 財務建議與組合試算 ----------
+// 建議依「開局填的真實狀況」計算,不帶天賦(天賦是遊戲設定)
+function realProfile() {
+  return { ...s.profile, talent: '' };
+}
+function getAdvice() {
+  const p = realProfile();
+  const key = JSON.stringify(p);
+  if (!advice || advice.key !== key) advice = { key, data: E.advise(p) };
+  return advice.data;
+}
+const signed = (v) => (v >= 0 ? '+' : '−') + E.fmt(Math.abs(v));
+function leverLabel(l) {
+  const A = U.advice;
+  const p = s.profile;
+  if (l.k === 'risk') return A.lever.risk[l.v];
+  return A.lever[l.k](l.v, E.fmt(Math.abs(p[l.k] * l.v)));
+}
+function advicePanel() {
+  const A = U.advice;
+  const a = getAdvice();
+  const pc = (v) => Math.round(Math.abs(v) * 100);
+  const months = Math.round(a.cashMonths * 10) / 10;
+  const checks = [
+    a.saveRate < 0 ? ['down', A.saveNeg(pc(a.saveRate))] : a.saveRate < 0.1 ? ['down', A.saveLow(pc(a.saveRate))] : ['up', A.saveOk(pc(a.saveRate))],
+    a.cashMonths < 3 ? ['down', A.cashLow(months)] : ['up', A.cashOk(months)],
+  ];
+  if (a.base.neg >= 0.05) checks.push(['down', A.negRisk(Math.round(a.base.neg * 100))]);
+  const top = a.levers[0];
+  const riskUp = a.levers.find((l) => l.k === 'risk' && l.d50 > 0 && l.d10 < 0);
+  return `<section class="panel stack">
+      <h3>${A.title}</h3>
+      <p class="small muted">${A.basis}</p>
+      <ul class="checks">${checks.map(([cls, text]) => `<li class="${cls}">${text}</li>`).join('')}</ul>
+      <h3>${A.leversTitle}</h3>
+      ${top && top.d50 > 0 ? `<p><b>${A.top(leverLabel(top), signed(top.d50))}</b></p>` : ''}
+      <ul class="lines levers">${a.levers.map((l) => `<li><span>${leverLabel(l)}</span><span class="num small ${l.d50 < 0 ? 'down' : 'up'}">${A.delta(signed(l.d50), signed(l.d10))}</span></li>`).join('')}</ul>
+      <p class="small muted">${A.leversNote}</p>
+      ${riskUp ? `<p class="small">${A.riskWarn(signed(riskUp.d10))}</p>` : ''}
+      <button class="btn primary" data-act="lab">${A.open}</button>
+      <p class="small muted">${A.disclaimer}</p>
+    </section>`;
+}
+function labResult(change) {
+  const key = `${change.expense}|${change.income}|${change.risk}`;
+  if (!lab.cache[key]) lab.cache[key] = E.scenario(realProfile(), change);
+  return lab.cache[key];
+}
+// 兩條橫條:上面是現在的做法,下面是這個組合;橫條是八成範圍,直線是中間值
+function labChart(base, cur) {
+  const W = 300, M = 8;
+  const min = Math.min(base.p10, cur.p10, 0), max = Math.max(base.p90, cur.p90);
+  const X = (v) => M + ((v - min) / (max - min || 1)) * (W - 2 * M);
+  const bar = (r, y, cls) => `<rect class="${cls}" x="${X(r.p10).toFixed(1)}" y="${y}" width="${Math.max(2, X(r.p90) - X(r.p10)).toFixed(1)}" height="18" rx="6"></rect>
+    <line class="mid" x1="${X(r.p50).toFixed(1)}" x2="${X(r.p50).toFixed(1)}" y1="${y - 3}" y2="${y + 21}"></line>`;
+  return `<svg class="chart fan labchart" viewBox="0 0 ${W} 64" role="img" aria-label="${U.advice.chartAria}">${bar(base, 6, 'band base')}${bar(cur, 38, 'band')}</svg>`;
 }
 
 // 一筆回填和當初預測的比較
@@ -881,6 +976,17 @@ const ACTIONS = {
     toast(U.real.tracked);
   },
   real() { realError = ''; view = 'real'; render(); },
+  lab() {
+    lab = { from: view, change: { expense: 0, income: 0, risk: s.profile.risk }, cache: {} };
+    view = 'lab';
+    render();
+    window.scrollTo(0, 0);
+  },
+  labSet({ k, v }) {
+    lab.change[k] = k === 'risk' ? v : Number(v);
+    render();
+  },
+  labBack() { view = lab.from; lab = null; render(); },
   untrack() {
     if (!window.confirm(U.real.removeConfirm)) return;
     real = null;
