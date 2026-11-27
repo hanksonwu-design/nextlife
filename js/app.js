@@ -89,6 +89,7 @@ let lab = null;
 // 關掉時:「換一張事件卡」不用看廣告(每局次數不變),結局頁不顯示「進階功能」那一區。
 // 不要在沒接好之前打開:假的廣告和按了沒反應的付費按鈕,送 App Store 審查會被當成未完成的功能退件。
 const FEATURES = { ads: false, premium: false };
+let planStyle = {}; // 年度計畫:每項習慣選哪一種做法(0 輕鬆、1 標準、2 投入),沒選就是標準
 let checkFrom = null; // 財務健檢是從哪個畫面進來的
 const GUIDE_KEY = 'nextlife.guide.v1'; // 看過使用說明了沒
 let guideNext = false; // 使用說明是不是從「開始」進來的(是的話下面放「開始填資料」) // 組合試算:{ from, change: { expense, income, risk }, cache: {} }
@@ -157,6 +158,12 @@ function render() {
   app.innerHTML = VIEWS[view]();
   window.scrollTo(0, 0);
   animate();
+  // 背景音樂跟著情境:危機和命運時緊張一點,結局明亮一點
+  let mood = 'calm';
+  if (view === 'end') mood = 'bright';
+  else if (view === 'fate') mood = 'tense';
+  else if (view === 'play' && s && s.pending && !s.last) { try { if (E.getCard(s.pending).type === 'crisis') mood = 'tense'; } catch { /* 找不到卡片就維持平常的音樂 */ } }
+  SND.setMood?.(mood); // 舊版的 audio.js 還在快取裡時沒有這個函式,不要讓畫面壞掉
   if (view === 'fate') runFate();
   if (view === 'play' && s && s.last && app.querySelector('.ach')) {
     setTimeout(() => { SND.sfx('achieve'); burst(18); }, 450);
@@ -208,6 +215,7 @@ function bars(from) {
 function statusPanel(before) {
   const C = U.common;
   const chips = [P.industries[s.industry].name, U.status[s.status], s.house ? C.owner : C.renter, C.investType(P.risk[s.risk].name)];
+  chips.push(T.stages[E.growth(s).stage]);
   if (s.kids) chips.push(C.kids(s.kids));
   if (s.value) chips.push(T.values[s.value].name);
   if (s.money) chips.push(T.moneyTypes[s.money].name);
@@ -814,34 +822,12 @@ const VIEWS = {
   // 每年先決定要練哪幾項習慣(養成),再擲骰子
   plan() {
     const L = U.plan;
-    const cards = E.HABITS.map((id, i) => {
-      const h = T.habits[id];
-      const lv = E.habitLevel(s, id);
-      const g = E.planPreview(s, [id]).items[0];
-      const next = E.habitToNext(s, id);
-      const gain = g.attr ? L.gainAttr(T.attr[g.attr], `+${g.gain}`) : L.gainMoney(`+${Math.round(g.returnPct * 1000) / 10}%`);
-      // 三種成本:金錢、時間、健康
-      const costs = [
-        g.lean ? L.lean : g.price > 0 ? L.cost(E.fmt(g.price)) : '',
-        L.time(g.time),
-        ...Object.entries(g.strain || {}).map(([k, d]) => L.strain(T.attr[k], (d > 0 ? '+' : '−') + Math.abs(d))),
-        g.tired ? L.tired : '',
-      ].filter(Boolean).join(' · ');
-      const owned = [3, 5].filter((n) => lv >= n).map((n) => `<span class="hint perk on">${L.perkOwned(h.perks[n][0], h.perks[n][1])}</span>`).join('');
-      const nextPerk = [3, 5].find((n) => lv < n);
-      const locked = nextPerk ? `<span class="hint perk">${L.perkLocked(nextPerk, h.perks[nextPerk][0], h.perks[nextPerk][1])}</span>` : '';
-      return `<button class="btn habit pop ${planPicks.includes(id) ? 'on' : ''}" style="--i:${i}" data-act="pick" data-id="${id}" aria-pressed="${planPicks.includes(id)}">
-        <span class="hrow"><b>${h.name}</b><span class="small muted">${lv ? L.level(lv) : L.notStarted}</span>${levelPips(lv)}</span>
-        <span class="hint">${h.desc} · ${gain} · ${next ? L.toNext(next) : L.maxed}</span>
-        <span class="hint cost">${costs}</span>
-        ${owned}${locked}
-      </button>`;
-    }).join('');
+    const cards = E.HABITS.map((id, i) => habitCard(id, i)).join('');
     return `${track(s.turn)}
     <div class="row"><h3>${U.common.yearHead(s.age, s.turn + 1, E.TOTAL_TURNS)}</h3><span class="num"><span class="small muted">${U.common.netWorth}</span> <b>${E.fmt(E.netWorth(s))}</b></span></div>
     <h2>${L.title}</h2>
     <p class="muted small">${L.intro(E.PLAN_MAX)}</p>
-    <section class="panel">${bars()}</section>
+    <section class="panel stack">${bars()}${stageBar()}</section>
     <div class="stack">${cards}</div>
     <section class="panel plansum" id="plansum" aria-live="polite">${planSummary()}</section>
     <button class="btn primary" id="planbtn" data-act="planDone">${planPicks.length ? L.confirmGo : L.confirmRest}</button>`;
@@ -1015,9 +1001,66 @@ const VIEWS = {
 };
 
 // 目前勾選的計畫合計:時間用了幾格、花多少錢、會不會太滿
+// 年度計畫裡的一張習慣卡:上面是勾選的大按鈕,下面是三種做法
+function habitCard(id, i, anim = true) {
+  const L = U.plan;
+  const h = T.habits[id];
+  const lv = E.habitLevel(s, id);
+  const style = planStyle[id] ?? 1;
+  const g = E.planPreview(s, [id], { [id]: style }).items[0];
+  const next = E.habitToNext(s, id);
+  const gain = g.attr ? L.gainAttr(T.attr[g.attr], `+${g.gain}`) : L.gainMoney(`+${Math.round(g.returnPct * 1000) / 10}%`);
+  // 三種成本:金錢、時間、健康
+  const costs = [
+    g.lean ? L.lean : g.price > 0 ? L.cost(E.fmt(g.price)) : '',
+    L.time(g.time),
+    ...Object.entries(g.strain || {}).map(([k, d]) => L.strain(T.attr[k], (d > 0 ? '+' : '−') + Math.abs(d))),
+    g.tired ? L.tired : '',
+  ].filter(Boolean).join(' · ');
+  const owned = [3, 5].filter((n) => lv >= n).map((n) => `<span class="hint perk on">${L.perkOwned(h.perks[n][0], h.perks[n][1])}</span>`).join('');
+  const nextPerk = [3, 5].find((n) => lv < n);
+  const locked = nextPerk ? `<span class="hint perk">${L.perkLocked(nextPerk, h.perks[nextPerk][0], h.perks[nextPerk][1])}</span>` : '';
+  const on = planPicks.includes(id);
+  return `<div class="habit ${anim ? 'pop' : ''} ${on ? 'on' : ''}" id="habit-${id}" data-id="${id}" style="--i:${i}">
+    <button class="btn habitmain" data-act="pick" data-id="${id}" aria-pressed="${on}">
+      <span class="hrow"><b>${h.name}</b><span class="small muted">${lv ? L.level(lv) : L.notStarted}</span>${levelPips(lv)}</span>
+      <span class="hint">${h.desc} · ${gain} · ${next ? L.toNext(next) : L.maxed}</span>
+      <span class="hint cost">${costs}</span>
+      ${owned}${locked}
+    </button>
+    <div class="seg styleseg" role="group" aria-label="${L.styleLabel}">${[0, 1, 2].map((k) => `<button class="${style === k ? 'on' : ''}" data-act="planStyle" data-id="${id}" data-k="${k}" aria-pressed="${style === k}" title="${L.styleHint[k]}">${h.styles[k]}</button>`).join('')}</div>
+    <div class="small muted stylehint">${L.styleHint[style]}</div>
+  </div>`;
+}
+// 成長階段的小條:目前的稱號,以及離下一階還差幾級
+function stageBar() {
+  const L = U.plan;
+  const gr = E.growth(s);
+  const pct = gr.next == null ? 100 : Math.round(((gr.total - gr.from) / (gr.next - gr.from)) * 100);
+  return `<div class="stagebar"><div class="row"><b>${L.stage(T.stages[gr.stage])}</b><span class="small muted">${gr.next == null ? L.stageMax : L.stageNext(gr.toNext, T.stages[gr.stage + 1])}</span></div>
+    <div class="stagetrack"><span style="width:${pct}%"></span></div></div>`;
+}
+// 升級時的慶祝畫面(蓋在畫面上,按一下繼續)
+function celebrate(plan) {
+  const L = U.plan;
+  const rows = plan.ups.map((u) => `<li class="pop" style="--i:${1}"><b>${L.upLevel(T.habits[u.id].name, u.level)}</b>${levelPips(u.level)}${u.perk ? `<span class="perkline">${L.upPerk(u.perk[0], u.perk[1])}</span>` : ''}</li>`).join('');
+  const stage = plan.stageUp != null ? `<li class="pop stageup" style="--i:2"><b>${L.upStage(T.stages[plan.stageUp])}</b></li>` : '';
+  const o = document.createElement('div');
+  o.className = 'levelup';
+  o.setAttribute('role', 'dialog');
+  o.setAttribute('aria-modal', 'true');
+  o.innerHTML = `<div class="levelbox"><img src="${charImg('happy')}" alt=""><div class="title stamp">${L.upTitle}</div><ul>${rows}${stage}</ul><button class="btn primary" type="button">${L.upOk}</button></div>`;
+  o.addEventListener('click', (ev) => { if (ev.target === o || ev.target.closest('button')) o.remove(); });
+  document.body.appendChild(o);
+  SND.sfx('achieve');
+  burst(30);
+  buzz(30);
+  o.querySelector('button').focus();
+}
+
 function planSummary() {
   const L = U.plan;
-  const pv = E.planPreview(s, planPicks);
+  const pv = E.planPreview(s, planPicks, planStyle);
   const busy = pv.busy.length ? L.sumBusy(pv.busy.map((b) => L.busy[b]).join('、')) : '';
   const state = pv.over ? `<b class="warn">${L.sumOver(pv.over, pv.overCost)}</b>` : pv.free ? `<b class="good">${L.sumFree(pv.free)}</b>` : `<b>${L.sumOk}</b>`;
   return `<div>${L.sumTime(pv.used, pv.cap)}${busy} · ${L.sumCost(E.fmt(pv.cost))}</div><div>${state}</div>`;
@@ -1574,16 +1617,31 @@ const ACTIONS = {
     app.querySelectorAll('.habit').forEach((b) => {
       const on = planPicks.includes(b.dataset.id);
       b.classList.toggle('on', on);
-      b.setAttribute('aria-pressed', on);
+      b.querySelector('.habitmain').setAttribute('aria-pressed', on);
     });
     document.getElementById('plansum').innerHTML = planSummary();
     document.getElementById('planbtn').textContent = planPicks.length ? U.plan.confirmGo : U.plan.confirmRest;
     SND.sfx('tick');
     buzz(10);
   },
+  // 換一種做法:只重畫那一張卡(不整頁重繪,才不會跳回頁首);還沒勾的話順便勾起來
+  planStyle({ id, k }) {
+    planStyle[id] = Number(k);
+    if (!planPicks.includes(id) && planPicks.length < E.PLAN_MAX) planPicks.push(id);
+    const el = document.getElementById(`habit-${id}`);
+    if (el) el.outerHTML = habitCard(id, 0, false);
+    document.getElementById('plansum').innerHTML = planSummary();
+    document.getElementById('planbtn').textContent = planPicks.length ? U.plan.confirmGo : U.plan.confirmRest;
+    SND.sfx('tick');
+    buzz(10);
+  },
   planDone() {
-    E.planYear(s, planPicks);
+    const plan = E.planYear(s, planPicks, planStyle);
     planPicks = [];
+    planStyle = {};
+    // 解鎖特長或成長階段升級才跳出慶祝畫面;一般升級只用提示和音效,免得每年都要多按一下
+    if (plan.stageUp != null || plan.ups.some((u) => u.perk)) setTimeout(() => celebrate(plan), 350);
+    else if (plan.ups.length) setTimeout(() => { toast(U.plan.upToast(plan.ups.map((u) => U.plan.upLevel(T.habits[u.id].name, u.level)).join('、'))); SND.sfx('reveal'); burst(10); }, 350);
     save();
     SND.sfx('confirm');
     buzz(20);
@@ -1706,7 +1764,7 @@ app.addEventListener('click', (ev) => {
   ACTIONS[b.dataset.act](b.dataset);
 });
 // 這些操作自己會出聲,不再加一般的點擊聲
-const OWN_SOUND = new Set(['roll', 'flip', 'choose', 'pick', 'answer', 'planDone', 'next', 'quizDone', 'reveal', 'reroll']);
+const OWN_SOUND = new Set(['roll', 'flip', 'choose', 'pick', 'planStyle', 'answer', 'planDone', 'next', 'quizDone', 'reveal', 'reroll']);
 
 // 聲音開關:固定在畫面右下角,按一下依序切換「音樂和音效 → 只有音效 → 靜音」
 const audioBtn = document.createElement('button');

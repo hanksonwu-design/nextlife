@@ -175,6 +175,24 @@ const HABIT_STRAIN = { study: { health: -1 } }; // 練這項本身對身體的�
 const TIRED_HITS = { study: true, bond: true }; // 身心狀態差時效果會打折的習慣
 const OVER_COST = 2; // 時間每超出一格,健康和心理各扣幾分
 const MONEY_RETURN = 0.004; // 理財功課每一級,投資年報酬的平均值加多少
+// 每項習慣有三種做法(名稱在國家包的 t.habits[id].styles):
+//   0 輕鬆:花費四成、效果少 1(至少 1)、熟練度只算半次(升級比較慢)
+//   1 標準
+//   2 投入:花費兩倍、多占一格時間、效果多 1、熟練度算兩次(升級比較快)
+export const STYLES = [
+  { cost: 0.4, gain: -1, xp: 0.5, time: 0, ret: 0.5 },
+  { cost: 1, gain: 0, xp: 1, time: 0, ret: 1 },
+  { cost: 2, gain: 1, xp: 2, time: 1, ret: 1.5 },
+];
+// 成長階段:五種習慣的等級加起來,到這些門檻就升一階(階段名稱在國家包的 t.stages)
+const STAGE_AT = [0, 3, 7, 12, 18];
+export function growth(s) {
+  const total = HABITS.reduce((sum, id) => sum + habitLevel(s, id), 0);
+  let stage = 0;
+  while (stage + 1 < STAGE_AT.length && total >= STAGE_AT[stage + 1]) stage++;
+  const next = stage + 1 < STAGE_AT.length ? STAGE_AT[stage + 1] : null;
+  return { total, stage, next, toNext: next == null ? 0 : next - total, from: STAGE_AT[stage] };
+}
 
 const levelOf = (count) => (count <= 0 ? 0 : Math.min(HABIT_MAX, 1 + Math.floor(count / 2)));
 const countOf = (s, id) => (s.habits && s.habits[id]) || 0;
@@ -204,46 +222,51 @@ export function timeBudget(s) {
 const habitTime = (s, id) => (id === 'bond' && s.kids > 0 ? 0 : HABIT_TIME[id]);
 
 // 試算:這樣選會花多少錢、占多少時間、得到什麼(畫面預覽和 planYear 共用,不改動狀態)
-export function planPreview(s, picks) {
+export function planPreview(s, picks, styles = {}) {
   const { cap, busy } = timeBudget(s);
   const tiredNow = s.attrs.health < 40 || s.attrs.mind < 35;
   let cash = s.cash;
   let used = 0;
   let cost = 0;
   const items = picks.slice(0, PLAN_MAX).map((id) => {
-    const level = levelOf(countOf(s, id) + 1);
-    const full = P.econ.habitCost[id] * s.expense;
+    const style = STYLES[styles[id]] ? styles[id] : 1;
+    const st = STYLES[style];
+    const level = levelOf(countOf(s, id) + st.xp);
+    const full = P.econ.habitCost[id] * s.expense * st.cost;
     const attr = HABIT_ATTR[id] || null;
     const lean = !!attr && cash < full; // 現金不夠:克難版
     const price = cash < full ? 0 : full;
     cash -= price;
     cost += price;
     const tired = tiredNow && !!TIRED_HITS[id];
-    let gain = attr ? HABIT_GAIN[level] : 0;
+    let gain = attr ? Math.max(1, HABIT_GAIN[level] + st.gain) : 0;
     if (lean) gain = Math.ceil(gain / 2);
     if (tired) gain = Math.max(1, gain - 1);
-    const time = habitTime(s, id);
+    const time = habitTime(s, id) + st.time;
     used += time;
-    return { id, level, attr, gain, returnPct: attr ? 0 : MONEY_RETURN * level, price, lean, tired, time, strain: HABIT_STRAIN[id] || null };
+    return { id, style, xp: st.xp, level, attr, gain, returnPct: attr ? 0 : MONEY_RETURN * level * st.ret, price, lean, tired, time, strain: HABIT_STRAIN[id] || null };
   });
   const over = Math.max(0, used - cap);
   const free = Math.min(2, Math.max(0, cap - used));
   return { cap, busy, used, over, free, cost, items, overCost: over * OVER_COST };
 }
 
-export function planYear(s, picks) {
+export function planYear(s, picks, styles = {}) {
   s.habits = s.habits || {};
   const T = P.t;
   const L = [];
-  const pv = planPreview(s, picks);
+  const ups = []; // 這一年升級了什麼(畫面用來慶祝)
+  const stageBefore = growth(s).stage;
+  const pv = planPreview(s, picks, styles);
   const bump = (k, d, why) => {
     s.attrs[k] = clamp(s.attrs[k] + d);
     L.push({ text: T.attrLine(T.attr[k], sign(d), why), tone: d > 0 ? 'up' : 'down' });
   };
   for (const it of pv.items) {
     const before = habitLevel(s, it.id);
-    s.habits[it.id] = countOf(s, it.id) + 1;
-    const name = T.habits[it.id].name;
+    s.habits[it.id] = countOf(s, it.id) + it.xp;
+    const styleName = it.style !== 1 && T.habits[it.id].styles ? T.habits[it.id].styles[it.style] : '';
+    const name = T.habits[it.id].name + (styleName ? `・${styleName}` : '');
     if (it.attr) {
       s.attrs[it.attr] = clamp(s.attrs[it.attr] + it.gain);
       const note = (it.lean ? T.planLean : '') + (it.tired ? T.planTired : '');
@@ -259,6 +282,7 @@ export function planYear(s, picks) {
     if (it.level > before) {
       const pk = T.habits[it.id].perks[it.level];
       L.push({ text: pk ? T.planPerk(name, it.level, pk[0], pk[1]) : T.planLevel(name, it.level), tone: 'info', levelUp: true });
+      ups.push({ id: it.id, level: it.level, perk: pk || null });
     }
   }
   if (pv.over) {
@@ -269,7 +293,8 @@ export function planYear(s, picks) {
     bump('mind', pv.free, T.planFree);
   }
   s.planned = s.turn;
-  s.plan = { turn: s.turn, picks: pv.items.map((it) => it.id), lines: L };
+  const stageAfter = growth(s).stage;
+  s.plan = { turn: s.turn, picks: pv.items.map((it) => it.id), lines: L, ups, stageUp: stageAfter > stageBefore ? stageAfter : null };
   return s.plan;
 }
 

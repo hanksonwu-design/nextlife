@@ -97,6 +97,7 @@ const N = {
   C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392, A4: 440, B4: 493.88,
   C5: 523.25, D5: 587.33, E5: 659.25, G5: 783.99, A5: 880, B5: 987.77,
   C6: 1046.5, D6: 1174.66, E6: 1318.51, G6: 1567.98,
+  D2: 73.42, E2: 82.41, Gs3: 207.65, A1: 55,
 };
 
 // ---------- 音效 ----------
@@ -146,6 +147,21 @@ const BARS = [
   { pad: ['G3', 'B3', 'D4', 'G4'], bass: 'G3' },
 ];
 const SCALE = ['C5', 'D5', 'E5', 'G5', 'A5', 'C6', 'D6', 'E6'];
+// 情境:calm 平常;tense 危機與命運(小調、低音每拍都有、旋律少);bright 結局(明亮、旋律多)
+const TENSE_BARS = [
+  { pad: ['A3', 'C4', 'E4'], bass: 'A2' },
+  { pad: ['F3', 'A3', 'C4'], bass: 'F3' },
+  { pad: ['D3', 'F3', 'A3'], bass: 'D3' },
+  { pad: ['E3', 'Gs3', 'B3'], bass: 'E3' },
+];
+const BRIGHT_BARS = [
+  { pad: ['C4', 'E4', 'G4'], bass: 'C3' },
+  { pad: ['G3', 'B3', 'D4'], bass: 'G3' },
+  { pad: ['A3', 'C4', 'E4'], bass: 'A2' },
+  { pad: ['F3', 'A3', 'C4'], bass: 'F3' },
+];
+let mood = 'calm';
+export function setMood(m) { if (m === 'calm' || m === 'tense' || m === 'bright') mood = m; }
 let bar = 0;
 let nextBar = 0;
 let walk = 3;
@@ -156,14 +172,20 @@ const rnd = () => {
 };
 
 function scheduleBar(at) {
-  const b = BARS[bar % BARS.length];
+  const set = mood === 'tense' ? TENSE_BARS : mood === 'bright' ? BRIGHT_BARS : BARS;
+  const b = set[bar % set.length];
   const t = at - ctx.currentTime;
   const len = BEAT * 4;
   b.pad.forEach((n) => tone(musicOut, N[n], t, len * 1.05, { type: 'sine', v: 0.05, attack: 0.5 }));
-  tone(musicOut, N[b.bass], t, BEAT * 1.8, { type: 'triangle', v: 0.09, attack: 0.02 });
-  tone(musicOut, N[b.bass], t + BEAT * 2, BEAT * 1.6, { type: 'triangle', v: 0.07, attack: 0.02 });
+  if (mood === 'tense') {
+    for (let k = 0; k < 4; k++) tone(musicOut, N[b.bass], t + BEAT * k, BEAT * 0.6, { type: 'triangle', v: k === 0 ? 0.1 : 0.07, attack: 0.01 });
+  } else {
+    tone(musicOut, N[b.bass], t, BEAT * 1.8, { type: 'triangle', v: 0.09, attack: 0.02 });
+    tone(musicOut, N[b.bass], t + BEAT * 2, BEAT * 1.6, { type: 'triangle', v: 0.07, attack: 0.02 });
+  }
+  const dense = mood === 'bright' ? 0.2 : mood === 'tense' ? -0.25 : 0; // 旋律出現的機率加減
   for (let i = 0; i < 8; i++) {
-    if (rnd() > (i % 2 === 0 ? 0.62 : 0.32)) continue; // 正拍比較常出現
+    if (rnd() > (i % 2 === 0 ? 0.62 : 0.32) + dense) continue; // 正拍比較常出現
     walk = Math.max(0, Math.min(SCALE.length - 1, walk + Math.round(rnd() * 4 - 2)));
     tone(musicOut, N[SCALE[walk]], t + i * (BEAT / 2), BEAT * 1.4, { type: 'triangle', v: 0.06, attack: 0.01 });
   }
