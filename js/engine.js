@@ -905,6 +905,44 @@ export function advise(profile, n = 300, seed = 2024) {
   };
 }
 
+// ---------- 財務健檢 ----------
+// 用起點算出幾個理財規劃常看的指標(都是一年的金額,單位同引擎):
+//   gross 稅前年收入(薪資 + 年終 + 配偶薪資)、withheld 稅與保費、net 稅後、spend 年支出(含房貸)、surplus 結餘、
+//   saveRate 儲蓄率(結餘 ÷ 稅後收入)、cashMonths 現金夠付幾個月支出、liquidMonths 存款加投資夠付幾個月、
+//   loanBurden 房貸負擔率(一年房貸 ÷ 稅前年收入)、stockShare 股票比例、fiNumber 財務自由數字(年支出的倍數,倍數在國家包)。
+export function health(profile) {
+  const s = newGame({ ...profile, talent: '' }, 1);
+  const ind = P.industries[s.industry];
+  const bonus = s.income * ind.bonus * (0.6 + (0.8 * s.attrs.career) / 100);
+  const gross = s.income * 12 + bonus + s.spouse * 12;
+  let withheld = 0;
+  if (P.deductions) {
+    withheld = P.deductions({ income: s.income, bonus, industry: s.industry, kids: 0 }).total;
+    if (s.spouse > 0) withheld += P.deductions({ income: s.spouse, bonus: 0, industry: null, kids: 0 }).total;
+  }
+  const net = gross - withheld;
+  const loanYear = s.loan ? s.loan.yearly : 0;
+  const spend = s.expense * 12 + loanYear;
+  const surplus = net - spend;
+  const liquid = s.cash + s.invest;
+  const multiple = (P.econ.checkup && P.econ.checkup.fiMultiple) || 25;
+  return {
+    gross, withheld, net, spend, loanYear, surplus,
+    saveRate: net > 0 ? surplus / net : -1,
+    cash: s.cash, liquid,
+    cashMonths: spend > 0 ? s.cash / (spend / 12) : 99,
+    liquidMonths: spend > 0 ? liquid / (spend / 12) : 99,
+    loanBurden: gross > 0 ? loanYear / gross : 0,
+    loanBalance: s.loan ? s.loan.balance : 0,
+    houseValue: s.house ? s.houseValue : 0,
+    netWorth: s.startNet,
+    stockShare: P.risk[s.risk].share,
+    invest: s.invest,
+    fiNumber: spend * multiple,
+    fiProgress: spend > 0 ? liquid / (spend * multiple) : 0,
+  };
+}
+
 // ---------- 到退休的長期試算 ----------
 // 十年推演是遊戲(有事件卡、養成、分數);這裡只算錢,一路算到 toAge 歲,用來回答「退休時手上有多少」。
 // 每年:薪資 + 年終 − 生活支出 − 房貸 − 稅與保費,結餘依投資配置分到股票和定存;
@@ -915,12 +953,15 @@ export function advise(profile, n = 300, seed = 2024) {
 // opts.house === 'buy':存款加投資夠付頭期款的那一年買房(房價每年照 houseGrowth 上漲),之後付房貸、不用付房租。
 // opts.kid === 'yes':第二年生一個,每月支出多 opts.kidCost(現在的價格),養 opts.kidYears 年。
 // 回傳的 equity 是 toAge 歲時房子淨值(房價 − 房貸餘額)的中間值,bought 是買到房的比例。
+// 回傳的 flow 是逐年現金流的中間值(現在的購買力):income 稅前年收入、withheld 稅與保費、spend 年支出(含房貸與養育)、surplus 結餘。
+// 壓力情境:opts.firstReturn 指定第一年的股票報酬(例如 −0.43);opts.lostMonths 第一年少幾個月的薪水(失業)。
 export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
   const X = P.econ;
   const hist = X.stockReturns;
   const years = Math.max(0, Math.round(toAge - profile.age));
   const shift = hist && opts.stockMean != null ? opts.stockMean - hist.reduce((a, b) => a + b, 0) / hist.length : 0;
   const yearly = Array.from({ length: years }, () => []);
+  const flows = Array.from({ length: years }, () => ({ income: [], withheld: [], spend: [], surplus: [] }));
   const equities = [];
   const kidYears = opts.kidYears || 22;
   let start = 0;
@@ -954,7 +995,8 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
       }
       const bonus = s.income * ind.bonus * (0.6 + (0.8 * s.attrs.career) / 100);
       const selfPay = opts.self ? Math.min(s.income, opts.selfCap ?? Infinity) * opts.self * 12 : 0;
-      const spouseNet = s.spouse > 0 ? s.spouse * 12 - (P.deductions ? P.deductions({ income: s.spouse, bonus: 0, industry: null, kids: 0 }).total : 0) : 0;
+      const spouseDed = s.spouse > 0 && P.deductions ? P.deductions({ income: s.spouse, bonus: 0, industry: null, kids: 0 }).total : 0;
+      const spouseNet = s.spouse > 0 ? s.spouse * 12 - spouseDed : 0;
       const kidAge = kidPay > 0 ? t - 1 : -1; // 第二年出生,那一年算 0 歲
       const allowance = kidAge >= 0 && X.kidAllowance && kidAge < X.kidAllowanceUntil ? X.kidAllowance[0] * 12 : 0;
       const withheld = P.deductions ? P.deductions({ income: s.income, bonus, industry: s.industry, kids: kidAge >= 0 ? 1 : 0, kidAges: kidAge >= 0 ? [kidAge] : [], self: opts.self || 0 }).total : 0;
@@ -965,9 +1007,16 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
         s.loan.years -= 1;
         if (s.loan.years <= 0 || s.loan.balance < 0.5) s.loan = null;
       }
-      const surplus = s.income * 12 + bonus + spouseNet + allowance - s.expense * 12 - kidPay * 12 - loanPay - withheld - selfPay;
+      const lost = t === 0 && opts.lostMonths ? s.income * opts.lostMonths : 0; // 壓力情境:失業幾個月
+      const surplus = s.income * 12 + bonus + spouseNet + allowance - s.expense * 12 - kidPay * 12 - loanPay - withheld - selfPay - lost;
+      const deflate = Math.pow(1 + X.inflation, t);
+      flows[t].income.push((s.income * 12 + bonus + (s.spouse > 0 ? s.spouse * 12 : 0) + allowance - lost) / deflate);
+      flows[t].withheld.push((withheld + spouseDed + selfPay) / deflate);
+      flows[t].spend.push((s.expense * 12 + kidPay * 12 + loanPay) / deflate);
+      flows[t].surplus.push(surplus / deflate);
       if (s.house) s.houseValue *= 1 + X.houseGrowth;
-      const base = hist ? hist[Math.floor(rand(s) * hist.length)] + shift : risk.mean + risk.sd * gauss(s);
+      let base = hist ? hist[Math.floor(rand(s) * hist.length)] + shift : risk.mean + risk.sd * gauss(s);
+      if (t === 0 && opts.firstReturn != null) base = opts.firstReturn; // 壓力情境:第一年股市大跌(亂數照抽,後面各年才會一樣)
       s.invest *= 1 + clamp(base, -0.45, 0.9);
       s.cash *= 1 + (s.cash > 0 ? X.cashRate : X.debtRate);
       if (surplus >= 0) {
@@ -1000,8 +1049,10 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
     v.sort((x, y) => x - y);
     return { p10: q(v, 0.1), p50: q(v, 0.5), p90: q(v, 0.9) };
   });
+  const mid = (v) => { v.sort((x, y) => x - y); return v[Math.floor(v.length / 2)]; };
+  const flow = flows.map((f) => ({ income: mid(f.income), withheld: mid(f.withheld), spend: mid(f.spend), surplus: mid(f.surplus) }));
   return {
-    start, years, band,
+    start, years, band, flow,
     last: band.length ? band[band.length - 1] : { p10: start, p50: start, p90: start },
     bought: bought / n,
     equity: equities[Math.floor(equities.length / 2)] || 0,

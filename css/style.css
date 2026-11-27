@@ -402,3 +402,21 @@ body.shake #app { animation: shake 0.45s both; }
 ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 ol.steps li { display: flex; gap: 14px; align-items: flex-start; }
 .stepno { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--sky); color: #fff; font-weight: 900; display: grid; place-items: center; }
+
+/* 財務健檢 */
+.tag2 { display: inline-block; font-size: 12px; font-weight: 800; padding: 1px 9px; border-radius: 99px; border: 1.5px solid currentColor; color: var(--muted); vertical-align: 1px; }
+.tag2.up { color: var(--up); }
+.tag2.down { color: var(--down); }
+ul.ratios { list-style: none; margin: 0; padding: 0; display: grid; }
+ul.ratios li { display: grid; gap: 2px; padding: 10px 0; border-top: 1.5px solid var(--line); }
+ul.ratios li:first-child { border-top: 0; padding-top: 0; }
+ol.todo { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+ol.todo li { display: flex; gap: 12px; align-items: flex-start; }
+ol.todo .stepno { width: 28px; height: 28px; font-size: 14px; background: var(--muted); }
+ol.todo .stepno.up { background: var(--up); }
+ol.todo .stepno.down { background: var(--down); }
+.scrollx { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+table.ftable { border-collapse: collapse; width: 100%; font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.ftable th, table.ftable td { padding: 7px 8px; text-align: right; border-top: 1.5px solid var(--line); vertical-align: top; }
+table.ftable th { border-top: 0; color: var(--muted); font-weight: 700; }
+table.ftable th:first-child, table.ftable td:first-child { text-align: left; white-space: normal; min-width: 5.5em; }

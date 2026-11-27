@@ -89,6 +89,7 @@ let lab = null;
 // 關掉時:「換一張事件卡」不用看廣告(每局次數不變),結局頁不顯示「進階功能」那一區。
 // 不要在沒接好之前打開:假的廣告和按了沒反應的付費按鈕,送 App Store 審查會被當成未完成的功能退件。
 const FEATURES = { ads: false, premium: false };
+let checkFrom = null; // 財務健檢是從哪個畫面進來的
 const GUIDE_KEY = 'nextlife.guide.v1'; // 看過使用說明了沒
 let guideNext = false; // 使用說明是不是從「開始」進來的(是的話下面放「開始填資料」) // 組合試算:{ from, change: { expense, income, risk }, cache: {} }
 let quiz = null; // { id, i, answers, picks, result };picks 是每題選了第幾個選項(返回上一題時標出來)
@@ -453,6 +454,133 @@ const VIEWS = {
     <button class="btn ghost" data-act="untrack" style="text-align:center">${R.remove}</button>`;
   },
 
+  // 財務健檢:現在的體質、行動順序、壓力測試、到 65 歲的現金流
+  checkup() {
+    const K = U.checkup;
+    const B = P.econ.checkup;
+    const prof = realProfile();
+    const h = E.health(prof);
+    const long = longOf();
+    const rs = retireSummary();
+    const pc = (v) => Math.round(v * 100);
+    const m1 = (v) => Math.round(Math.min(v, 99) * 10) / 10;
+    const badge = (t) => (t ? `<span class="tag2 ${t === 'mid' ? '' : t}">${t === 'up' ? K.ok : t === 'mid' ? K.mid : K.low}</span>` : '');
+    const G = rs ? rs.p.gap : null;
+
+    // ---- 六個指標:[名稱, 數值, 燈號, 說明] ----
+    const ratios = [];
+    const saveT = h.saveRate >= B.saveGood ? 'up' : h.saveRate >= B.saveOk ? 'mid' : 'down';
+    ratios.push([K.ratio.save[0], K.ratio.save[1](pc(h.saveRate)), saveT, K.ratio.save[2](pc(B.saveGood), pc(B.saveOk))]);
+    const cashT = h.cashMonths >= B.cashGood ? 'up' : h.cashMonths >= B.cashOk ? 'mid' : 'down';
+    ratios.push([K.ratio.cash[0], K.ratio.cash[1](m1(h.cashMonths)), cashT, K.ratio.cash[2](B.cashGood, B.cashOk)]);
+    ratios.push(h.loanYear > 0
+      ? [K.ratio.loan[0], K.ratio.loan[1](pc(h.loanBurden)), h.loanBurden <= B.loanMax ? 'up' : 'down', K.ratio.loan[2](pc(B.loanMax)), false, h.loanBurden <= B.loanMax ? K.normal : K.high]
+      : [K.ratio.loan[0], K.ratio.loanNone, '', K.ratio.loan[2](pc(B.loanMax))]);
+    if (G) {
+      const t = G.worst.short <= 0 ? 'up' : G.best.short <= 0 ? 'mid' : 'down';
+      ratios.push([K.ratio.retire[0], t === 'up' ? K.ratio.retireOk : t === 'mid' ? K.ratio.retireMid : K.ratio.retireBad, t === 'mid' ? 'mid' : t, K.ratio.retire[2], true]);
+    }
+    ratios.push([K.ratio.stock[0], K.ratio.stock[1](pc(h.stockShare)), '', K.ratio.stock[2](Math.max(0, B.stockRule - prof.age))]);
+    let fiAge = null;
+    if (long) long.main.band.some((b, t) => (b.p50 >= long.main.flow[t].spend * B.fiMultiple ? ((fiAge = prof.age + t + 1), true) : false));
+    ratios.push([K.ratio.fi[0], K.ratio.fi[1](pc(h.fiProgress)), '', `${K.ratio.fi[2](E.fmt(h.fiNumber), B.fiMultiple)}${long && long.main.years > 0 ? (fiAge ? K.ratio.fiAge(fiAge) : K.ratio.fiNever) : ''}`]);
+
+    // ---- 行動順序:[燈號, 文字] ----
+    const S = K.step;
+    const steps = [];
+    steps.push(h.surplus < 0 ? ['down', S.flowBad(E.fmt(-h.surplus), E.fmt(-h.surplus / 12))] : ['up', S.flowOk(E.fmt(h.surplus), pc(h.saveRate))]);
+    const monthSpend = h.spend / 12;
+    if (h.cashMonths < B.cashOk) {
+      const need = monthSpend * B.cashOk - h.cash;
+      steps.push(['down', h.surplus > 0 ? S.cashLow(m1(h.cashMonths), E.fmt(need), Math.ceil(need / (h.surplus / 12))) : S.cashLowStuck(m1(h.cashMonths), E.fmt(need))]);
+    } else if (h.cashMonths < B.cashGood) {
+      steps.push(['', S.cashMid(m1(h.cashMonths), E.fmt(monthSpend * B.cashGood - h.cash))]);
+    } else {
+      steps.push(['up', S.cashOk(m1(h.cashMonths))]);
+    }
+    if (h.loanYear > 0) steps.push(h.loanBurden > B.loanMax ? ['down', S.loanHigh(pc(h.loanBurden), pc(B.loanMax))] : ['up', S.loanOk(pc(h.loanBurden))]);
+    if (rs && rs.self.selfMax > 0 && rs.p.left > 0) {
+      const sp = rs.self;
+      steps.push(h.cashMonths >= B.cashOk && h.surplus > sp.selfCost * 12
+        ? ['', S.selfDo(E.fmt(sp.selfCost), E.fmt(sp.lo.extraMonthly), E.fmt(sp.hi.extraMonthly), sp.taxSaved > 0.005 ? S.selfTax(E.fmt(sp.taxSaved)) : '')]
+        : ['', h.cashMonths < B.cashOk ? S.selfWait : S.selfWaitFlow]);
+    }
+    if (G) {
+      steps.push(G.worst.short <= 0 ? ['up', S.gapOk]
+        : G.best.short <= 0 ? ['', S.gapMid(E.fmt(G.worst.saveMore))]
+        : ['down', S.gapBad(E.fmt(G.best.saveMore), E.fmt(G.worst.saveMore))]);
+    }
+    steps.push(h.stockShare > 0 && h.invest > 0 ? ['', S.stock(pc(h.stockShare), E.fmt(h.invest * -B.worstYear))] : ['', S.stockNone]);
+    steps.push(['', S.insure]);
+
+    // ---- 壓力測試與現金流 ----
+    const st = long && long.main.years > 0 ? stressOf() : null;
+    const yrs = long ? long.main.years : 0;
+    const at10 = (r) => r.band[Math.min(9, r.band.length - 1)].p50;
+    const diff = (v, base) => (Math.abs(v - base) < 0.05 ? '' : `<br><span class="small ${v < base ? 'down' : 'up'}">${signed(v - base)}</span>`);
+    const stressRow = (label, r) => `<tr><td>${label}</td>${yrs > 10 ? `<td>${E.fmt(at10(r))}${r === st.base ? '' : diff(at10(r), at10(st.base))}</td>` : ''}<td>${E.fmt(r.last.p50)}${r === st.base ? '' : diff(r.last.p50, st.base.last.p50)}</td></tr>`;
+    const ts = [];
+    for (let t = 0; t < yrs; t += 5) ts.push(t);
+    if (yrs > 0 && ts[ts.length - 1] !== yrs - 1) ts.push(yrs - 1);
+    const line = (label, v, cls = '') => `<li><span>${label}</span><span class="num ${cls}">${v}</span></li>`;
+
+    return `<h2>${K.title}</h2>
+    <p class="muted small">${K.intro}</p>
+    <section class="panel stack">
+      <h3>${K.nowTitle}</h3>
+      <ul class="lines">
+        ${line(K.rows.gross, E.fmt(h.gross))}
+        ${line(K.rows.withheld, '−' + E.fmt(h.withheld))}
+        ${line(K.rows.net, E.fmt(h.net))}
+        ${line(K.rows.spend, '−' + E.fmt(h.spend))}
+        ${line(`<b>${K.rows.surplus}</b>`, `<b>${E.fmt(h.surplus)}</b>`, h.surplus < 0 ? 'down' : 'up')}
+      </ul>
+      <h3>${K.sheetTitle}</h3>
+      <ul class="lines">
+        ${line(K.sheet.liquid, E.fmt(h.liquid))}
+        ${h.houseValue > 0 ? line(K.sheet.house, E.fmt(h.houseValue)) : ''}
+        ${h.loanBalance > 0 ? line(K.sheet.loan, '−' + E.fmt(h.loanBalance)) : ''}
+        ${line(`<b>${K.sheet.net}</b>`, `<b>${E.fmt(h.netWorth)}</b>`)}
+      </ul>
+    </section>
+    <section class="panel stack">
+      <h3>${K.ratioTitle}</h3>
+      <ul class="ratios">${ratios.map(([name, value, t, note, wordOnly, word]) => `<li>
+        <div class="row"><b>${name}</b><span class="num">${wordOnly ? '' : `<b>${value}</b> `}${wordOnly || word ? `<span class="tag2 ${t === 'mid' ? '' : t}">${word || value}</span>` : badge(t)}</span></div>
+        <span class="small muted">${note}</span></li>`).join('')}</ul>
+    </section>
+    <section class="panel stack">
+      <h3>${K.stepsTitle}</h3>
+      <p class="small muted">${K.stepsIntro}</p>
+      <ol class="todo">${steps.map(([t, text], i) => `<li><span class="stepno num ${t}">${i + 1}</span><span>${text}</span></li>`).join('')}</ol>
+    </section>
+    ${st ? `<section class="panel stack">
+      <h3>${K.stressTitle}</h3>
+      <p class="small muted">${K.stressIntro}</p>
+      <div class="scrollx"><table class="ftable">
+        <thead><tr><th>${K.stressCols[0]}</th>${yrs > 10 ? `<th>${K.stressCols[1]}</th>` : ''}<th>${K.stressCols[2]}</th></tr></thead>
+        <tbody>${stressRow(K.stress.base, st.base)}${stressRow(K.stress.crash, st.crash)}${stressRow(K.stress.job, st.job)}${stressRow(K.stress.cost, st.cost)}</tbody>
+      </table></div>
+      <p class="small muted">${K.stressNote}</p>
+    </section>
+    <section class="panel stack">
+      <h3>${K.flowTitle}</h3>
+      <p class="small muted">${K.flowIntro}</p>
+      <div class="scrollx"><table class="ftable">
+        <thead><tr>${K.flowCols.map((c) => `<th>${c}</th>`).join('')}</tr></thead>
+        <tbody>${ts.map((t) => {
+          const f = long.main.flow[t];
+          return `<tr><td>${prof.age + t}</td><td>${E.fmt(f.income)}</td><td>${E.fmt(f.withheld)}</td><td>${E.fmt(f.spend)}</td><td class="${f.surplus < 0 ? 'down' : ''}">${E.fmt(f.surplus)}</td><td>${E.fmt(long.main.band[t].p50)}</td></tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <p class="small muted">${K.flowNote}</p>
+    </section>` : ''}
+    <p class="small muted">${K.disclaimer}</p>
+    <button class="btn" data-act="lab" style="text-align:center">${U.advice.open}</button>
+    ${P.pension ? `<button class="btn" data-act="pension" style="text-align:center">${U.pension.open}</button>` : ''}
+    <button class="btn primary" data-act="checkBack" style="text-align:center">${K.back}</button>`;
+  },
+
   // 使用說明:第一次按「開始」時先看一次,之後從首頁也能再打開
   guide() {
     const G = U.guide;
@@ -634,6 +762,7 @@ const VIEWS = {
     ${farPanel()}
     <p class="small muted">${F.note}</p>
     <button class="btn primary" data-act="begin">${F.start}</button>
+    <button class="btn" data-act="checkup" style="text-align:center">${U.checkup.open}</button>
     <button class="btn" data-act="lab" style="text-align:center">${U.advice.open}</button>
     ${P.pension ? `<button class="btn" data-act="pension" style="text-align:center">${U.pension.open}</button>` : ''}
     <button class="btn" data-act="track" style="text-align:center">${U.real.track}</button>
@@ -985,7 +1114,8 @@ function advicePanel() {
       <ul class="lines levers">${a.levers.map((l) => `<li><span>${leverLabel(l)}</span><span class="num small ${l.d50 < 0 ? 'down' : 'up'}">${A.delta(signed(l.d50), signed(l.d10))}</span></li>`).join('')}</ul>
       <p class="small muted">${A.leversNote}</p>
       ${riskUp ? `<p class="small">${A.riskWarn(signed(riskUp.d10))}</p>` : ''}
-      <button class="btn primary" data-act="lab">${A.open}</button>
+      <button class="btn primary" data-act="checkup">${U.checkup.open}</button>
+      <button class="btn" data-act="lab" style="text-align:center">${A.open}</button>
       ${P.pension ? `<button class="btn" data-act="pension" style="text-align:center">${U.pension.open}</button>` : ''}
       <p class="small muted">${A.disclaimer}</p>
     </section>`;
@@ -1017,6 +1147,25 @@ function getLong() {
   const pub = s.profile.industry === 'public';
   const self = pub ? pen.self * (pen.pubBase || P.pensionRules.pubBaseShare) * 2 : pen.self;
   return longOf(self, pen.house, pen.kid);
+}
+// 壓力測試:和長期試算同一個起點、同樣的運氣,只改一件壞事
+const stressCache = {};
+function stressOf() {
+  const R = P.pensionRules;
+  const B = P.econ.checkup;
+  const prof = realProfile();
+  const key = JSON.stringify(prof);
+  if (!stressCache[key]) {
+    const o = { self: 0, selfCap: R.lpCap, house: 'no', kid: 'no', stockMean: (1 + R.stockReal) * (1 + P.econ.inflation) - 1 };
+    const run = (p, extra) => E.projectLong(p, R.claimAge, 300, 2024, { ...o, ...extra });
+    stressCache[key] = {
+      base: longOf().main,
+      crash: run(prof, { firstReturn: B.worstYear }),
+      job: run(prof, { lostMonths: B.lostMonths }),
+      cost: run({ ...prof, expense: Math.round(prof.expense * 1.1 * 100) / 100 }, {}),
+    };
+  }
+  return stressCache[key];
 }
 // 退休準備的摘要(建議區塊用):照現在的做法夠不夠,以及自願提繳 6% 的效果
 function retireSummary() {
@@ -1245,6 +1394,13 @@ const ACTIONS = {
     render();
   },
   labBack() { view = lab.from; lab = null; render(); },
+  checkup() {
+    if (view !== 'checkup') checkFrom = view;
+    view = 'checkup';
+    render();
+    window.scrollTo(0, 0);
+  },
+  checkBack() { view = checkFrom || 'home'; render(); },
   pension() {
     pen = { from: view, years: Math.max(0, s.profile.age - P.pensionRules.startAge), self: 0, need: 1, liBase: 'min', house: 'no', kid: 'no' };
     view = 'pension';
