@@ -261,7 +261,7 @@ const VIEWS = {
     return `<div class="home">
       <div class="herowrap">
         <img class="hero" src="img/hero.jpg" width="900" height="1350" alt="${U.home.heroAlt}">
-        <div class="herotitle"><span class="tag">${U.tagline}</span><h1>${U.appName}</h1></div>
+        <div class="herotitle"><span class="tag">${U.tagline}</span><h1><img class="wordmark" src="img/wordmark.png" width="1200" height="457" alt="${U.appName}"></h1></div>
       </div>
       <div class="sheet stack">
         <p class="muted">${U.home.intro}</p>

@@ -451,3 +451,8 @@ table.ftable th:first-child, table.ftable td:first-child { text-align: left; whi
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .levelup, .levelbox { animation: none; } }
 .stagebar .row { display: grid; gap: 2px; justify-items: start; }
+
+/* 首頁標題改用標準字圖片 */
+.herotitle h1 { width: 100%; text-shadow: none; line-height: 0; }
+.herotitle { top: calc(env(safe-area-inset-top) + 3.5%); gap: 4px; }
+.herotitle .wordmark { display: block; width: 80%; max-width: 380px; height: auto; margin: 0 auto; filter: drop-shadow(0 6px 10px rgba(0, 50, 120, 0.28)); }
