@@ -61,7 +61,8 @@ export default {
     //   儲蓄率兩成以上算充足、一成以上算及格;緊急預備金三到六個月的支出;
     //   房貸月付金不超過月收入的三成(銀行審核房貸常用的負擔比上限);
     //   財務自由數字用年支出的 25 倍(每年提領 4% 的經驗法則);股票比例參考「100 減年齡」。
-    checkup: { saveGood: 0.2, saveOk: 0.1, cashGood: 6, cashOk: 3, loanMax: 0.3, fiMultiple: 25, stockRule: 100, worstYear: -0.43, lostMonths: 6 },
+    // debtHigh:利率高過這個數字的負債,排在存滿預備金和投資之前先還(這裡長期試算用的股票報酬約 6.6%,很難穩定賺贏比它高的利率)
+    checkup: { debtHigh: 0.06, saveGood: 0.2, saveOk: 0.1, cashGood: 6, cashOk: 3, loanMax: 0.3, fiMultiple: 25, stockRule: 100, worstYear: -0.43, lostMonths: 6 },
     // 大環境情境:AI、科技與太空供應鏈、能源。沒有人能預測這些事會怎麼發展,所以不是預測,是「如果這樣,你會怎樣」。
     // 幅度都是設計值。方向的依據:
     //   國際貨幣基金 2024 年的研究:先進經濟體約六成的工作會受 AI 影響,其中約一半可能因此提高生產力,另一半的關鍵工作可能被 AI 做掉。
@@ -152,6 +153,7 @@ export default {
     ['公保', '保險費率 7.83%(一般公務人員)或 16.33%(112 年 7 月以後到職),自付 35%;養老年金每年 0.75%,最高採計 40 年', '銓敘部「公教人員保險法」、臺灣銀行公教保險部(臺灣大學人事室整理)', '114 年 1 月起', 'https://law.moj.gov.tw/LawClass/LawAll.aspx?PCode=S0070001'],
     ['勞退基金報酬', '每年 8.58%(整體勞動基金的平均收益率)', '勞動部勞動基金運用局(勞動部新聞稿)', '105–114 年', 'https://www.mol.gov.tw/1607/1632/1633/88435/'],
     ['大環境情境的方向', '先進經濟體約六成的工作會受 AI 影響,約一半可能受益;到 2030 年全球新增 1.7 億個工作、9,200 萬個被取代;油價漲四成多時推升物價約 0.52 個百分點', '國際貨幣基金「Gen-AI: Artificial Intelligence and the Future of Work」、世界經濟論壇《2025 未來就業報告》、中央銀行(聯合報轉述)', '2024–2026 年', 'https://www.imf.org/en/blogs/articles/2024/01/14/ai-will-transform-the-global-economy-lets-make-sure-it-benefits-humanity'],
+    ['信用卡循環利率上限', '年利率 15%', '金融監督管理委員會「銀行法」第 47 條之 1', '104 年 9 月起', 'https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=G0380001&flno=47-1'],
     ['房貸利率', '2.29%', '中央銀行「五大銀行新承做放款利率」(經濟日報轉述)', '115 年 7 月', 'https://udn.com/news/story/6656/9706814'],
     ['存款利率', '1.7%', '臺灣銀行新臺幣存款牌告利率(一年期定期儲蓄存款,固定)', '115 年 11 月', 'https://rate.bot.com.tw/twd?Lang=zh-TW'],
   ],
@@ -160,7 +162,7 @@ export default {
 
   // 建立角色的表單:預設值與下限(金額單位同引擎)
   form: {
-    defaults: { avatar: 'm', age: 30, industry: 'tech', income: 5, spouseIncome: 0, expense: 3.5, savings: 80, county: 'all', status: 'single', house: 'none', rCareer: 3, rHealth: 3, rRelation: 3, rMind: 3 },
+    defaults: { avatar: 'm', age: 30, industry: 'tech', income: 5, spouseIncome: 0, expense: 3.5, savings: 80, debt: 0, debtRate: 6, debtPay: 0, county: 'all', status: 'single', house: 'none', rCareer: 3, rHealth: 3, rRelation: 3, rMind: 3 },
     income: { min: 1, step: 0.1 },
     expense: { min: 0.5, step: 0.1 },
     savings: { min: 0, step: 1 },

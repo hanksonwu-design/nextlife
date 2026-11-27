@@ -420,3 +420,7 @@ table.ftable { border-collapse: collapse; width: 100%; font-size: 13px; white-sp
 table.ftable th, table.ftable td { padding: 7px 8px; text-align: right; border-top: 1.5px solid var(--line); vertical-align: top; }
 table.ftable th { border-top: 0; color: var(--muted); font-weight: 700; }
 table.ftable th:first-child, table.ftable td:first-child { text-align: left; white-space: normal; min-width: 5.5em; }
+
+/* 表單:三個欄位排一列(負債) */
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-items: end; }
+.grid3 input { min-width: 0; width: 100%; }

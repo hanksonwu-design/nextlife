@@ -65,8 +65,32 @@ export function buyHouse(s, L) {
   L.push({ text: P.t.houseNoRent(fmt(oldExp), fmt(s.expense)), tone: 'up' });
 }
 
+// 房貸以外的負債(卡債、信貸、車貸、學貸)還一年:先算利息,再還款;還款不夠付利息時餘額會變大。
+// 回傳這一年實際還了多少、其中利息多少。還清之後 s.debt 變成 null,之後就不用再還。
+function payDebt(s) {
+  const d = s.debt;
+  if (!d) return { pay: 0, interest: 0 };
+  const interest = d.balance * d.rate;
+  const pay = Math.min(d.pay * 12, d.balance + interest);
+  d.balance += interest - pay;
+  if (d.balance < 0.05) s.debt = null;
+  return { pay, interest };
+}
+// 照現在的還法幾個月還清(還不完回傳 Infinity),以及總共付多少利息
+export function debtPayoff(balance, rate, pay) {
+  let b = balance, months = 0, interest = 0;
+  while (b > 0.005 && months < 600) {
+    const i = (b * rate) / 12;
+    if (pay <= i) return { months: Infinity, interest: Infinity };
+    interest += i;
+    b += i - pay;
+    months++;
+  }
+  return { months, interest };
+}
+
 export function netWorth(s) {
-  return s.cash + s.invest + (s.house ? s.houseValue : 0) - (s.loan ? s.loan.balance : 0);
+  return s.cash + s.invest + (s.house ? s.houseValue : 0) - (s.loan ? s.loan.balance : 0) - (s.debt ? s.debt.balance : 0);
 }
 
 export function newGame(profile, seed) {
@@ -88,6 +112,8 @@ export function newGame(profile, seed) {
     invest: profile.savings * risk.share,
     status: profile.status,
     kids: 0,
+    // 房貸以外的負債:餘額、年利率、每月還款(表單的利率是百分比)
+    debt: Number(profile.debt) > 0 ? { balance: Number(profile.debt), rate: Math.max(0, Number(profile.debtRate) || 0) / 100, pay: Math.max(0, Number(profile.debtPay) || 0) } : null,
     pos: 0,
     laps: 0,
     roll: null,
@@ -498,6 +524,13 @@ export function settleYear(s) {
     L.push({ text: T.principal, value: loanPay - interest });
     if (s.loan.years <= 0 || s.loan.balance < 0.5) s.loan = null;
   }
+  let debtPay = 0;
+  if (s.debt) {
+    const d = payDebt(s);
+    debtPay = d.pay;
+    L.push({ text: T.debtPay(fmt(d.interest)), value: -d.pay });
+    L.push({ text: T.debtPrincipal, value: d.pay - d.interest });
+  }
   let gifts = 0;
   if (s.money === 'give') {
     gifts = s.expense * 0.5;
@@ -512,7 +545,7 @@ export function settleYear(s) {
     withheld = d.total + sp.total;
     L.push({ text: T.deduct(fmt(d.tax + sp.tax), fmt(d.insurance + sp.insurance)), value: -withheld });
   }
-  const surplus = salary + bonus + spouseSalary + allowance - spend - loanPay - gifts - withheld;
+  const surplus = salary + bonus + spouseSalary + allowance - spend - loanPay - debtPay - gifts - withheld;
 
   // 投資報酬
   // 理財功課:每一級讓平均報酬高一點;3 級起懂得分散,單年最多虧 20%
@@ -707,7 +740,7 @@ export function benchYears(age) {
 // 資產可以支撐幾年開銷。房屋淨值只算一半,因為變現有折扣也需要時間。
 export function runwayYears(s) {
   const equity = s.house ? Math.max(0, s.houseValue - (s.loan ? s.loan.balance : 0)) : 0;
-  const assets = s.cash + s.invest + equity * 0.5;
+  const assets = s.cash + s.invest + equity * 0.5 - (s.debt ? s.debt.balance : 0);
   const spend = s.expense * 12 + (s.loan ? s.loan.yearly : 0);
   return assets / spend;
 }
@@ -922,7 +955,8 @@ export function health(profile) {
   }
   const net = gross - withheld;
   const loanYear = s.loan ? s.loan.yearly : 0;
-  const spend = s.expense * 12 + loanYear;
+  const debtYear = s.debt ? Math.min(s.debt.pay * 12, s.debt.balance * (1 + s.debt.rate)) : 0;
+  const spend = s.expense * 12 + loanYear + debtYear;
   const surplus = net - spend;
   const liquid = s.cash + s.invest;
   const multiple = (P.econ.checkup && P.econ.checkup.fiMultiple) || 25;
@@ -934,6 +968,8 @@ export function health(profile) {
     liquidMonths: spend > 0 ? liquid / (spend / 12) : 99,
     loanBurden: gross > 0 ? loanYear / gross : 0,
     loanBalance: s.loan ? s.loan.balance : 0,
+    debt: s.debt ? { ...s.debt, year: debtYear, interestYear: s.debt.balance * s.debt.rate } : null,
+    debtBurden: gross > 0 ? (loanYear + debtYear) / gross : 0,
     houseValue: s.house ? s.houseValue : 0,
     netWorth: s.startNet,
     stockShare: P.risk[s.risk].share,
@@ -947,7 +983,7 @@ export function health(profile) {
 // 十年推演是遊戲(有事件卡、養成、分數);這裡只算錢,一路算到 toAge 歲,用來回答「退休時手上有多少」。
 // 每年:薪資 + 年終 − 生活支出 − 房貸 − 稅與保費,結餘依投資配置分到股票和定存;
 //       薪資依產業行情和年齡調整,支出跟著物價和收入升級。沒有人生事件(買房、小孩、失業)。
-// 回傳的金額是「存款加投資」,而且換算成現在的購買力。
+// 回傳的金額是「存款加投資」(有房貸以外的負債就扣掉還沒還的部分),而且換算成現在的購買力。
 // opts.stockMean:股票部位的長期平均報酬(名目)。有給的話,保留歷史各年的漲跌形狀,但把平均平移到這個數字;
 //                 沒給就直接用歷史年份。opts.self / opts.selfCap:退休金自願提繳率與月提繳工資上限。
 // opts.house === 'buy':存款加投資夠付頭期款的那一年買房(房價每年照 houseGrowth 上漲),之後付房貸、不用付房租。
@@ -1014,15 +1050,16 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
         s.loan.years -= 1;
         if (s.loan.years <= 0 || s.loan.balance < 0.5) s.loan = null;
       }
+      const debtPay = payDebt(s).pay;
       const infl = X.inflation + (TR.inflation && t < (TR.inflYears ?? years) ? TR.inflation : 0);
       let lost = t === 0 && opts.lostMonths ? s.income * opts.lostMonths : 0; // 壓力情境:失業幾個月
       const hit = TR.lostMonths && t === (TR.lostYear || 0); // 大環境情境:這一年工作被取代
       if (hit) lost += s.income * TR.lostMonths;
-      const surplus = s.income * 12 + bonus + spouseNet + allowance - s.expense * 12 - kidPay * 12 - loanPay - withheld - selfPay - lost;
+      const surplus = s.income * 12 + bonus + spouseNet + allowance - s.expense * 12 - kidPay * 12 - loanPay - debtPay - withheld - selfPay - lost;
       const deflate = defl;
       flows[t].income.push((s.income * 12 + bonus + (s.spouse > 0 ? s.spouse * 12 : 0) + allowance - lost) / deflate);
       flows[t].withheld.push((withheld + spouseDed + selfPay) / deflate);
-      flows[t].spend.push((s.expense * 12 + kidPay * 12 + loanPay) / deflate);
+      flows[t].spend.push((s.expense * 12 + kidPay * 12 + loanPay + debtPay) / deflate);
       flows[t].surplus.push(surplus / deflate);
       if (s.house) s.houseValue *= 1 + X.houseGrowth;
       let base = (hist ? hist[Math.floor(rand(s) * hist.length)] + shift : risk.mean + risk.sd * gauss(s)) + (TR.stock || 0);
@@ -1050,7 +1087,7 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
       s.incomeRef = s.income;
       s.age += 1;
       defl *= 1 + infl;
-      yearly[t].push((s.cash + s.invest) / defl);
+      yearly[t].push((s.cash + s.invest - (s.debt ? s.debt.balance : 0)) / defl); // 扣掉還沒還的負債
     }
     if (s.flags.bought) bought++;
     equities.push(s.house ? (s.houseValue - (s.loan ? s.loan.balance : 0)) / defl : 0);

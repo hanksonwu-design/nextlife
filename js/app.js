@@ -489,6 +489,21 @@ const VIEWS = {
     const S = K.step;
     const steps = [];
     steps.push(h.surplus < 0 ? ['down', S.flowBad(E.fmt(-h.surplus), E.fmt(-h.surplus / 12))] : ['up', S.flowOk(E.fmt(h.surplus), pc(h.saveRate))]);
+    const highDebt = h.debt && h.debt.rate >= B.debtHigh;
+    const debtStep = () => {
+      const d = h.debt;
+      const rate = Math.round(d.rate * 1000) / 10;
+      const now = E.debtPayoff(d.balance, d.rate, d.pay);
+      if (!Number.isFinite(now.months)) return ['down', S.debtStuck(rate, E.fmt(d.balance), E.fmt(d.interestYear), E.fmt(d.pay * 12))];
+      if (!highDebt) return ['', S.debtLow(rate, S.debtMonths(now.months))];
+      const extra = Math.max(0.5, Math.round(d.pay * 0.5 * 10) / 10); // 多還的金額:現在還款的一半,至少 0.5 萬
+      const fast = E.debtPayoff(d.balance, d.rate, d.pay + extra);
+      const faster = now.months - fast.months >= 1 ? ' ' + S.debtFaster(E.fmt(extra), now.months - fast.months, E.fmt(now.interest - fast.interest)) : '';
+      const spare = Math.min(d.balance, h.cash - (h.spend / 12) * B.cashOk); // 預備金以外多出來的現金
+      const useCash = spare >= 1 ? ' ' + S.debtUseCash(E.fmt(spare)) : '';
+      return ['down', S.debtHigh(rate, E.fmt(d.balance), E.fmt(d.interestYear), S.debtMonths(now.months), E.fmt(now.interest)) + faster + useCash];
+    };
+    if (highDebt) steps.push(debtStep());
     const monthSpend = h.spend / 12;
     if (h.cashMonths < B.cashOk) {
       const need = monthSpend * B.cashOk - h.cash;
@@ -496,12 +511,13 @@ const VIEWS = {
     } else if (h.cashMonths < B.cashGood) {
       steps.push(['', S.cashMid(m1(h.cashMonths), E.fmt(monthSpend * B.cashGood - h.cash))]);
     } else {
-      steps.push(['up', S.cashOk(m1(h.cashMonths))]);
+      steps.push(['up', (highDebt ? S.cashOkDebt : S.cashOk)(m1(h.cashMonths))]);
     }
     if (h.loanYear > 0) steps.push(h.loanBurden > B.loanMax ? ['down', S.loanHigh(pc(h.loanBurden), pc(B.loanMax))] : ['up', S.loanOk(pc(h.loanBurden))]);
+    if (h.debt && !highDebt) steps.push(debtStep());
     if (rs && rs.self.selfMax > 0 && rs.p.left > 0) {
       const sp = rs.self;
-      steps.push(h.cashMonths >= B.cashOk && h.surplus > sp.selfCost * 12
+      steps.push(highDebt ? ['', S.selfWaitDebt] : h.cashMonths >= B.cashOk && h.surplus > sp.selfCost * 12
         ? ['', S.selfDo(E.fmt(sp.selfCost), E.fmt(sp.lo.extraMonthly), E.fmt(sp.hi.extraMonthly), sp.taxSaved > 0.005 ? S.selfTax(E.fmt(sp.taxSaved)) : '')]
         : ['', h.cashMonths < B.cashOk ? S.selfWait : S.selfWaitFlow]);
     }
@@ -546,6 +562,7 @@ const VIEWS = {
         ${line(K.sheet.liquid, E.fmt(h.liquid))}
         ${h.houseValue > 0 ? line(K.sheet.house, E.fmt(h.houseValue)) : ''}
         ${h.loanBalance > 0 ? line(K.sheet.loan, '−' + E.fmt(h.loanBalance)) : ''}
+        ${h.debt ? line(K.sheet.debt(Math.round(h.debt.rate * 1000) / 10), '−' + E.fmt(h.debt.balance), 'down') : ''}
         ${line(`<b>${K.sheet.net}</b>`, `<b>${E.fmt(h.netWorth)}</b>`)}
       </ul>
     </section>
@@ -692,6 +709,13 @@ const VIEWS = {
           <label>${C.expense}<input type="number" name="expense" inputmode="decimal" step="${F.expense.step}" min="${F.expense.min}" value="${d.expense}"></label>
         </div>
         <label>${C.savings}<input type="number" name="savings" inputmode="decimal" step="${F.savings.step}" min="${F.savings.min}" value="${d.savings}"></label>
+        <div class="small muted" style="font-weight:700">${C.debtTitle}</div>
+        <div class="grid3">
+          <label>${C.debt}<input type="number" name="debt" inputmode="decimal" step="1" min="0" value="${d.debt || 0}"></label>
+          <label>${C.debtRate}<input type="number" name="debtRate" inputmode="decimal" step="0.1" min="0" max="20" value="${d.debtRate ?? 6}"></label>
+          <label>${C.debtPay}<input type="number" name="debtPay" inputmode="decimal" step="0.1" min="0" value="${d.debtPay || 0}"></label>
+        </div>
+        <p class="small muted">${C.debtNote}</p>
         <label>${C.spouseIncome}<input type="number" name="spouseIncome" inputmode="decimal" step="${F.income.step}" min="0" value="${d.spouseIncome || 0}"></label>
         <p class="small muted">${C.spouseNote}</p>
         <label>${C.county}<select name="county">${opt(C.counties, d.county)}</select></label>
@@ -1733,6 +1757,7 @@ app.addEventListener('submit', (ev) => {
     avatar: f.get('avatar') || 'm',
     age: Math.round(n('age')), industry: f.get('industry'), income: n('income'), expense: n('expense'), savings: n('savings'),
     spouseIncome: f.get('spouseIncome') === '' || f.get('spouseIncome') == null ? 0 : n('spouseIncome'),
+    debt: f.get('debt') ? n('debt') : 0, debtRate: f.get('debtRate') === '' || f.get('debtRate') == null ? 0 : n('debtRate'), debtPay: f.get('debtPay') ? n('debtPay') : 0,
     talent: E.talentUnlocked(meta, f.get('talent')) ? f.get('talent') : '',
     county: f.get('county') || 'all', status: f.get('status'), house: f.get('house'), rCareer: n('rCareer'), rHealth: n('rHealth'), rRelation: n('rRelation'), rMind: n('rMind'),
   });
@@ -1742,6 +1767,7 @@ app.addEventListener('submit', (ev) => {
     : !(draft.expense >= P.form.expense.min) ? U.create.errExpense(P.form.expense.min)
     : !(draft.savings >= P.form.savings.min) ? U.create.errSavings
     : !(draft.spouseIncome >= 0) ? U.create.errSpouse
+    : !(draft.debt >= 0 && draft.debtPay >= 0 && draft.debtRate >= 0 && draft.debtRate <= 20) ? U.create.errDebt
     : '';
   if (formError) return render();
   quiz = { id: 'risk', i: 0, answers: [], picks: [], result: null };
