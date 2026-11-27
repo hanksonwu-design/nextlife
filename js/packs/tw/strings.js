@@ -638,10 +638,11 @@ export const ui = {
   play: {
     landedOn: (tile) => ` · 走到「${tile}」格`,
     reroll: (n) => `看廣告換一張事件卡(剩 ${n} 次)`,
+    rerollFree: (n) => `換一張事件卡(這一局剩 ${n} 次)`,
     adSlot: '廣告版位(示意,正式版接廣告聯播網)',
     adPlaying: '廣告播放中(示意)',
     adNote: '正式版這裡會播放獎勵廣告',
-    noReroll: '這一輪的換卡次數用完了',
+    noReroll: '這一局的換卡次數用完了',
   },
 
   fate: {

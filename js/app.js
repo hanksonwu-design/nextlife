@@ -85,6 +85,10 @@ let draft = null;
 let advice = null; // { key, data }:財務建議的計算結果(依起點快取)
 let pen = null; // 退休金試算:{ from, years, self }
 let lab = null;
+// 還沒接上真正的廣告和 App 內購買,所以先關掉。
+// 關掉時:「換一張事件卡」不用看廣告(每局次數不變),結局頁不顯示「進階功能」那一區。
+// 不要在沒接好之前打開:假的廣告和按了沒反應的付費按鈕,送 App Store 審查會被當成未完成的功能退件。
+const FEATURES = { ads: false, premium: false };
 const GUIDE_KEY = 'nextlife.guide.v1'; // 看過使用說明了沒
 let guideNext = false; // 使用說明是不是從「開始」進來的(是的話下面放「開始填資料」) // 組合試算:{ from, change: { expense, income, risk }, cache: {} }
 let quiz = null; // { id, i, answers, picks, result };picks 是每題選了第幾個選項(返回上一題時標出來)
@@ -711,7 +715,7 @@ const VIEWS = {
       <p>${text}</p>
     </section>
     <div class="stack">${c.choices.map((ch, i) => `<button class="btn pop" style="--i:${i + 1}" data-act="choose" data-i="${i}">${ch.label}${choiceHint(ch)}</button>`).join('')}</div>
-    <button class="btn ghost small" data-act="reroll">${U.play.reroll(s.rerolls)}</button>
+    <button class="btn ghost small" data-act="reroll">${(FEATURES.ads ? U.play.reroll : U.play.rerollFree)(s.rerolls)}</button>
     <div class="ad">${U.play.adSlot}</div>`;
   },
 
@@ -829,10 +833,10 @@ const VIEWS = {
       <h3>${N.historyTitle}</h3>
       <ul class="timeline">${s.history.map((h) => `<li><span class="muted num">${N.historyAge(h.age)}</span><span>${N.historyRow(h.title, h.choice)}</span><span class="num muted">${E.fmt(h.net)}</span></li>`).join('')}</ul>
     </section>
-    <section class="panel stack">
+    ${FEATURES.premium ? `<section class="panel stack">
       <h3>${N.premium}</h3>
       ${N.premiumItems.map((item) => `<button class="btn lock" data-act="locked"><span>${item}</span><span>${N.paid}</span></button>`).join('')}
-    </section>
+    </section>` : ''}
     <button class="btn primary" data-act="cardEnd">${U.card.save}</button>
     <button class="btn" data-act="share" style="text-align:center">${N.share}</button>
     <button class="btn" data-act="new" style="text-align:center">${N.again}</button>`;
@@ -1400,6 +1404,13 @@ const ACTIONS = {
   },
   reroll() {
     if (s.rerolls <= 0) return toast(U.play.noReroll);
+    if (!FEATURES.ads) {
+      s.rerolls -= 1;
+      E.startTurn(s, s.pending);
+      save();
+      SND.sfx('flip');
+      return render();
+    }
     const o = document.createElement('div');
     o.className = 'overlay';
     o.innerHTML = `<div><p><b>${U.play.adPlaying}</b></p><p class="small">${U.play.adNote}</p></div>`;
@@ -1476,7 +1487,7 @@ app.addEventListener('click', (ev) => {
   ACTIONS[b.dataset.act](b.dataset);
 });
 // 這些操作自己會出聲,不再加一般的點擊聲
-const OWN_SOUND = new Set(['roll', 'flip', 'choose', 'pick', 'answer', 'planDone', 'next', 'quizDone', 'reveal']);
+const OWN_SOUND = new Set(['roll', 'flip', 'choose', 'pick', 'answer', 'planDone', 'next', 'quizDone', 'reveal', 'reroll']);
 
 // 聲音開關:固定在畫面右下角,按一下依序切換「音樂和音效 → 只有音效 → 靜音」
 const audioBtn = document.createElement('button');
