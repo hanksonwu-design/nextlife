@@ -955,6 +955,11 @@ export function health(profile) {
 // 回傳的 equity 是 toAge 歲時房子淨值(房價 − 房貸餘額)的中間值,bought 是買到房的比例。
 // 回傳的 flow 是逐年現金流的中間值(現在的購買力):income 稅前年收入、withheld 稅與保費、spend 年支出(含房貸與養育)、surplus 結餘。
 // 壓力情境:opts.firstReturn 指定第一年的股票報酬(例如 −0.43);opts.lostMonths 第一年少幾個月的薪水(失業)。
+// 大環境情境 opts.trend(都是「和原本的假設相比」的差距,沒寫的就是不變):
+//   growth / years:薪資成長每年多(或少)幾個百分點,持續幾年
+//   stock:股票長期平均報酬多(或少)幾個百分點
+//   inflation / inflYears:物價每年多漲幾個百分點,持續幾年
+//   lostYear / lostMonths / wageCut:第幾年失業幾個月,之後薪水比原本低多少(換工作的降薪)
 export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
   const X = P.econ;
   const hist = X.stockReturns;
@@ -962,6 +967,7 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
   const shift = hist && opts.stockMean != null ? opts.stockMean - hist.reduce((a, b) => a + b, 0) / hist.length : 0;
   const yearly = Array.from({ length: years }, () => []);
   const flows = Array.from({ length: years }, () => ({ income: [], withheld: [], spend: [], surplus: [] }));
+  const TR = opts.trend || {};
   const equities = [];
   const kidYears = opts.kidYears || 22;
   let start = 0;
@@ -972,6 +978,7 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
     const risk = P.risk[s.risk];
     start = s.cash + s.invest;
     let kidPay = 0; // 這一年每月的養育支出(當年的價格)
+    let defl = 1; // 累計的物價(用來把金額換回現在的購買力)
     for (let t = 0; t < years; t++) {
       s.turn = t; // 房價依過了幾年往上調(housePrice 會用到)
       if (opts.kid === 'yes' && opts.kidCost) {
@@ -1007,15 +1014,18 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
         s.loan.years -= 1;
         if (s.loan.years <= 0 || s.loan.balance < 0.5) s.loan = null;
       }
-      const lost = t === 0 && opts.lostMonths ? s.income * opts.lostMonths : 0; // 壓力情境:失業幾個月
+      const infl = X.inflation + (TR.inflation && t < (TR.inflYears ?? years) ? TR.inflation : 0);
+      let lost = t === 0 && opts.lostMonths ? s.income * opts.lostMonths : 0; // 壓力情境:失業幾個月
+      const hit = TR.lostMonths && t === (TR.lostYear || 0); // 大環境情境:這一年工作被取代
+      if (hit) lost += s.income * TR.lostMonths;
       const surplus = s.income * 12 + bonus + spouseNet + allowance - s.expense * 12 - kidPay * 12 - loanPay - withheld - selfPay - lost;
-      const deflate = Math.pow(1 + X.inflation, t);
+      const deflate = defl;
       flows[t].income.push((s.income * 12 + bonus + (s.spouse > 0 ? s.spouse * 12 : 0) + allowance - lost) / deflate);
       flows[t].withheld.push((withheld + spouseDed + selfPay) / deflate);
       flows[t].spend.push((s.expense * 12 + kidPay * 12 + loanPay) / deflate);
       flows[t].surplus.push(surplus / deflate);
       if (s.house) s.houseValue *= 1 + X.houseGrowth;
-      let base = hist ? hist[Math.floor(rand(s) * hist.length)] + shift : risk.mean + risk.sd * gauss(s);
+      let base = (hist ? hist[Math.floor(rand(s) * hist.length)] + shift : risk.mean + risk.sd * gauss(s)) + (TR.stock || 0);
       if (t === 0 && opts.firstReturn != null) base = opts.firstReturn; // 壓力情境:第一年股市大跌(亂數照抽,後面各年才會一樣)
       s.invest *= 1 + clamp(base, -0.45, 0.9);
       s.cash *= 1 + (s.cash > 0 ? X.cashRate : X.debtRate);
@@ -1030,18 +1040,20 @@ export function projectLong(profile, toAge, n = 300, seed = 2024, opts = {}) {
         s.invest -= take;
         s.cash += take;
       }
-      const g = ind.growth + ageGrowth(s) + ind.vol * gauss(s);
+      const g = ind.growth + ageGrowth(s) + ind.vol * gauss(s) + (TR.growth && t < (TR.years ?? years) ? TR.growth : 0);
       s.income *= 1 + g;
+      if (hit && TR.wageCut) s.income *= 1 - TR.wageCut;
       if (s.spouse > 0) s.spouse *= 1 + (X.spouseGrowth ?? X.inflation);
-      s.expense *= 1 + X.inflation;
-      const rise = s.income / s.incomeRef - 1 - X.inflation;
+      s.expense *= 1 + infl;
+      const rise = s.income / s.incomeRef - 1 - infl;
       if (rise > 0.005) s.expense *= 1 + rise * X.creep;
       s.incomeRef = s.income;
       s.age += 1;
-      yearly[t].push((s.cash + s.invest) / Math.pow(1 + X.inflation, t + 1));
+      defl *= 1 + infl;
+      yearly[t].push((s.cash + s.invest) / defl);
     }
     if (s.flags.bought) bought++;
-    equities.push(s.house ? (s.houseValue - (s.loan ? s.loan.balance : 0)) / Math.pow(1 + X.inflation, years) : 0);
+    equities.push(s.house ? (s.houseValue - (s.loan ? s.loan.balance : 0)) / defl : 0);
   }
   equities.sort((x, y) => x - y);
   const q = (arr, p) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))];

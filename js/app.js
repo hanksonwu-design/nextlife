@@ -523,6 +523,12 @@ const VIEWS = {
     for (let t = 0; t < yrs; t += 5) ts.push(t);
     if (yrs > 0 && ts[ts.length - 1] !== yrs - 1) ts.push(yrs - 1);
     const line = (label, v, cls = '') => `<li><span>${label}</span><span class="num ${cls}">${v}</span></li>`;
+    // 大環境情境
+    const tr = st ? trendsOf() : null;
+    const pp = (v) => Math.round(Math.abs(v) * 1000) / 10;
+    let worst = null;
+    if (tr) tr.rows.forEach((x) => { if (!worst || x.r.last.p50 < worst.r.last.p50) worst = x; });
+    const worstLoss = worst ? st.base.last.p50 - worst.r.last.p50 : 0;
 
     return `<h2>${K.title}</h2>
     <p class="muted small">${K.intro}</p>
@@ -554,6 +560,18 @@ const VIEWS = {
       <p class="small muted">${K.stepsIntro}</p>
       <ol class="todo">${steps.map(([t, text], i) => `<li><span class="stepno num ${t}">${i + 1}</span><span>${text}</span></li>`).join('')}</ol>
     </section>
+    ${tr ? `<section class="panel stack">
+      <h3>${K.trendTitle}</h3>
+      <p class="small muted">${K.trendIntro}</p>
+      <div class="scrollx"><table class="ftable">
+        <thead><tr><th>${K.trendCols[0]}</th>${yrs > 10 ? `<th>${K.trendCols[1]}</th>` : ''}<th>${K.trendCols[2]}</th></tr></thead>
+        <tbody>${stressRow(K.stress.base, st.base)}${tr.rows.map((x) => stressRow(K.trend[x.id][0], x.r)).join('')}</tbody>
+      </table></div>
+      <ul class="plain small muted">${tr.rows.map((x) => `<li><b>${K.trend[x.id][0]}</b>:${K.trend[x.id][1](pp(x.trend.growth))}</li>`).join('')}</ul>
+      <p class="small muted">${tr.size === 'big' ? K.trendDirect : K.trendIndirect}</p>
+      ${worst && worstLoss > 0.5 ? `<p><b>${K.trendWorst(K.trend[worst.id][0], E.fmt(worstLoss))}</b>${K.trendTips[worst.id] ? `<br><span class="small">${K.trendTips[worst.id]}</span>` : ''}</p>` : ''}
+      <p class="small muted">${K.trendBasis}</p>
+    </section>` : ''}
     ${st ? `<section class="panel stack">
       <h3>${K.stressTitle}</h3>
       <p class="small muted">${K.stressIntro}</p>
@@ -1166,6 +1184,27 @@ function stressOf() {
     };
   }
   return stressCache[key];
+}
+// 大環境情境(AI、科技景氣、能源):同一個起點、同樣的運氣,只改大環境的假設
+const trendCache = {};
+function trendsOf() {
+  const R = P.pensionRules;
+  const TD = P.econ.trends;
+  if (!TD) return null;
+  const prof = realProfile();
+  const key = JSON.stringify(prof);
+  if (!trendCache[key]) {
+    const size = TD.direct.includes(prof.industry) ? 'big' : 'small';
+    const o = { self: 0, selfCap: R.lpCap, house: 'no', kid: 'no', stockMean: (1 + R.stockReal) * (1 + P.econ.inflation) - 1 };
+    trendCache[key] = {
+      size,
+      rows: TD.list.map((t) => {
+        const trend = { ...t, growth: t.growth ? t.growth[size] : 0 };
+        return { id: t.id, trend, r: E.projectLong(prof, R.claimAge, 300, 2024, { ...o, trend }) };
+      }),
+    };
+  }
+  return trendCache[key];
 }
 // 退休準備的摘要(建議區塊用):照現在的做法夠不夠,以及自願提繳 6% 的效果
 function retireSummary() {
