@@ -152,7 +152,97 @@ export function newGame(profile, seed) {
   }
   if (TALENTS[profile.talent]) TALENTS[profile.talent].start(s);
   s.startNet = netWorth(s);
+  s.goals = pickGoals(s, seed | 0);
   return s;
+}
+
+// ---- 年度大事 ----
+// 每年開始時抽一個大環境事件,這一年的規則會跟著變(名稱與說明在國家包的 t.events)。
+// 一年的效果有好有壞、幅度不大,而且平均起來大致抵銷,所以開局預測(模擬裡也會抽)不會因此偏掉。
+//   bonusMul 年終倍數;growth 薪資成長加減;expensePct 今年支出多漲多少;cashRate 定存利率加減;
+//   stock 股票報酬加減;habit 某幾種習慣今年效果加幾分;chance 某類事件的成功率加減
+const YEAR_EVENTS = [
+  { id: 'calm', w: 3 },
+  { id: 'boom', w: 1, bonusMul: 1.3, growth: 0.01 },
+  { id: 'slump', w: 1, bonusMul: 0.5, growth: -0.01 },
+  { id: 'prices', w: 1, expensePct: 0.03 },
+  { id: 'rates', w: 1, cashRate: 0.015 },
+  { id: 'ai', w: 1, habit: { study: 1 }, chance: { career: 0.05 } },
+  { id: 'sport', w: 1, habit: { fit: 1 } },
+  { id: 'holiday', w: 1, habit: { bond: 1, rest: 1 } },
+  { id: 'bull', w: 1, stock: 0.08 },
+  { id: 'bear', w: 1, stock: -0.08 },
+];
+const EVENT_BY = Object.fromEntries(YEAR_EVENTS.map((e) => [e.id, e]));
+// 抽今年的大事(一年只抽一次,重複呼叫會拿到同一個)
+export function yearEvent(s) {
+  if (s.event && s.event.turn === s.turn) return s.event;
+  const total = YEAR_EVENTS.reduce((sum, e) => sum + e.w, 0);
+  let r = rand(s) * total;
+  let pick = YEAR_EVENTS[0];
+  for (const e of YEAR_EVENTS) {
+    r -= e.w;
+    if (r <= 0) { pick = e; break; }
+  }
+  s.event = { turn: s.turn, id: pick.id };
+  return s.event;
+}
+// 今年生效中的大事(沒有就回傳空物件)
+const evOf = (s) => (s.event && s.event.turn === s.turn && EVENT_BY[s.event.id]) || {};
+
+// ---- 人生目標 ----
+// 每一局開局時給三個目標,達成有獎勵(名稱在國家包的 t.goals)。目標依起點挑,已經達成的不會出現。
+//   want(s) 這個起點適不適合;target(s) 門檻;cur(s) 目前的數字
+const GOAL_DEFS = {
+  // 淨資產:門檻先給一個暫定值,畫面算出開局預測後會改成「比預測的中間值高 15%」(見 setNetGoal)
+  net: { want: () => true, target: (s) => Math.max(100, Math.round(netWorth(s) * 3)), cur: (s) => netWorth(s) },
+  cash: { want: (s) => s.cash / s.expense < 9, target: () => 12, cur: (s) => s.cash / s.expense },
+  // 月收入:比「照產業行情走十年」再多一點(每年多 3 個百分點)才算達成
+  income: { want: () => true, target: (s) => Math.round(s.income * Math.pow(1 + P.industries[s.industry].growth + 0.03, TOTAL_TURNS) * 10) / 10, cur: (s) => s.income },
+  career: { want: (s) => s.attrs.career < 68, target: () => 75, cur: (s) => s.attrs.career },
+  health: { want: (s) => s.attrs.health < 63, target: () => 70, cur: (s) => s.attrs.health },
+  relation: { want: (s) => s.attrs.relation < 68, target: () => 75, cur: (s) => s.attrs.relation },
+  mind: { want: (s) => s.attrs.mind < 68, target: () => 75, cur: (s) => s.attrs.mind },
+  habit: { want: () => true, target: () => HABIT_MAX, cur: (s) => Math.max(...HABITS.map((id) => habitLevel(s, id))) },
+  stage: { want: () => true, target: () => 16, cur: (s) => growth(s).total },
+  house: { want: (s) => !s.house, target: () => 1, cur: (s) => (s.house ? 1 : 0) },
+};
+const GOAL_COUNT = 3;
+const GOAL_REWARD = { rerolls: 1, mind: 3 }; // 達成一個目標:多一次換卡機會、心理 +3
+// 開局挑目標。用自己的亂數,不動到 s.rng,這樣加了目標也不會改變同一個種子的遊戲過程。
+function pickGoals(s, seed) {
+  let x = (seed ^ 0x9e3779b9) >>> 0;
+  const next = () => { x = (Math.imul(x, 1664525) + 1013904223) >>> 0; return x / 4294967296; };
+  const pool = Object.keys(GOAL_DEFS).filter((id) => GOAL_DEFS[id].want(s));
+  const picks = [];
+  while (picks.length < GOAL_COUNT && pool.length) picks.push(pool.splice(Math.floor(next() * pool.length), 1)[0]);
+  return picks.map((id) => ({ id, target: GOAL_DEFS[id].target(s), done: null }));
+}
+// 有了開局預測之後,把淨資產目標訂成「比預測的中間值高 15%」,這樣不管起點高低都有挑戰性
+export function setNetGoal(s, median) {
+  const g = (s.goals || []).find((x) => x.id === 'net');
+  if (g && g.done == null && median > 0) g.target = Math.ceil((median * 1.15) / 10) * 10;
+}
+// 目前的進度:[{ id, target, cur, pct, done }]
+export function goalStatus(s) {
+  return (s.goals || []).map((g) => {
+    const cur = GOAL_DEFS[g.id] ? GOAL_DEFS[g.id].cur(s) : 0;
+    return { ...g, cur, pct: g.done != null ? 1 : Math.max(0, Math.min(1, cur / g.target)) };
+  });
+}
+// 檢查有沒有新達成的目標,有的話發獎勵。回傳這次新達成的 id
+function checkGoals(s) {
+  const fresh = [];
+  for (const g of s.goals || []) {
+    if (g.done != null || !GOAL_DEFS[g.id]) continue;
+    if (GOAL_DEFS[g.id].cur(s) >= g.target) {
+      g.done = s.turn;
+      s.rerolls = (s.rerolls || 0) + GOAL_REWARD.rerolls;
+      s.attrs.mind = clamp(s.attrs.mind + GOAL_REWARD.mind);
+      fresh.push(g.id);
+    }
+  }
+  return fresh;
 }
 
 // ---- 養成:年度計畫 ----
@@ -239,7 +329,7 @@ export function planPreview(s, picks, styles = {}) {
     cash -= price;
     cost += price;
     const tired = tiredNow && !!TIRED_HITS[id];
-    let gain = attr ? Math.max(1, HABIT_GAIN[level] + st.gain) : 0;
+    let gain = attr ? Math.max(1, HABIT_GAIN[level] + st.gain) + ((evOf(s).habit || {})[id] || 0) : 0;
     if (lean) gain = Math.ceil(gain / 2);
     if (tired) gain = Math.max(1, gain - 1);
     const time = habitTime(s, id) + st.time;
@@ -257,6 +347,7 @@ export function planYear(s, picks, styles = {}) {
   const L = [];
   const ups = []; // 這一年升級了什麼(畫面用來慶祝)
   const stageBefore = growth(s).stage;
+  yearEvent(s); // 不管從哪裡進來(遊戲、模擬、工具),排計畫前一定先抽好今年的大事
   const pv = planPreview(s, picks, styles);
   const bump = (k, d, why) => {
     s.attrs[k] = clamp(s.attrs[k] + d);
@@ -346,6 +437,7 @@ export function chanceOf(s, c) {
   if (c.attr === 'career' && perk(s, 'study', 3)) bonus += 0.05; // 進修 3 級:專業底子
   if (perk(s, 'rest', 5)) bonus += 0.03; // 充電 5 級:從容
   if (s.profile.talent === 'veteran') bonus += 0.02; // 天賦:過來人
+  bonus += (evOf(s).chance || {})[c.attr] || 0; // 年度大事
   return clamp(c.p + bonus, 0.05, 0.95);
 }
 
@@ -444,8 +536,18 @@ export const BOARD = [
 // 每種格子抽哪一類事件卡(null = 不限)
 export const TILE_TYPE = { start: 'chance', chance: 'chance', crisis: 'crisis', choice: 'choice', coin: 'chance', rest: 'choice', fate: null };
 
-export function rollTurn(s) {
-  const d = 1 + Math.floor(rand(s) * 6);
+// 擲兩顆骰子,玩家挑一顆走(一年只擲一次,重複呼叫會拿到同一組)。
+// 模擬和工具不挑,一律用第一顆,統計上和只擲一顆一樣。
+export function rollPair(s) {
+  if (s.pair && s.pair.turn === s.turn) return s.pair;
+  const dice = [1 + Math.floor(rand(s) * 6), 1 + Math.floor(rand(s) * 6)];
+  const from = s.pos ?? 0;
+  s.pair = { turn: s.turn, dice, options: dice.map((d) => ({ d, to: (from + d) % BOARD.length, kind: BOARD[(from + d) % BOARD.length], lap: from + d >= BOARD.length })) };
+  return s.pair;
+}
+export function rollTurn(s, pick = 0) {
+  const pair = rollPair(s);
+  const d = pair.dice[pick] ?? pair.dice[0];
   const from = s.pos ?? 0;
   const to = (from + d) % BOARD.length;
   const notes = [];
@@ -521,7 +623,8 @@ export function settleYear(s) {
   const a = s.attrs;
 
   const salary = s.income * 12;
-  const bonusMonths = ind.bonus * (0.6 + (0.8 * a.career) / 100);
+  const EV = evOf(s); // 今年的大事(要在 s.turn 加一之前讀)
+  const bonusMonths = ind.bonus * (0.6 + (0.8 * a.career) / 100) * (EV.bonusMul ?? 1);
   const bonus = s.income * bonusMonths;
   const spend = s.expense * 12;
   let loanPay = 0;
@@ -577,7 +680,7 @@ export function settleYear(s) {
   // 有歷史報酬資料(econ.stockReturns)就從真實年份裡隨機抽一年,否則用平均與波動模擬
   const hist = P.econ.stockReturns;
   const base = hist ? hist[Math.floor(rand(s) * hist.length)] : risk.mean + risk.sd * gauss(s);
-  let r = clamp(base + MONEY_RETURN * habitLevel(s, 'money'), perk(s, 'money', 3) ? -0.2 : -0.45, 0.9);
+  let r = clamp(base + (EV.stock || 0) + MONEY_RETURN * habitLevel(s, 'money'), perk(s, 'money', 3) ? -0.2 : -0.45, 0.9);
   let rebounded = false;
   if (s.flags.rebound) {
     s.flags.rebound = false;
@@ -591,9 +694,10 @@ export function settleYear(s) {
   s.invest += gain;
 
   if (s.cash > 0) {
-    const interest = s.cash * X.cashRate;
+    const rate = X.cashRate + (EV.cashRate || 0);
+    const interest = s.cash * rate;
     s.cash += interest;
-    L.push({ text: T.cashInterest(pct(X.cashRate)), value: interest });
+    L.push({ text: T.cashInterest(pct(rate)), value: interest });
   } else if (s.cash < 0) {
     const interest = s.cash * X.debtRate;
     s.cash += interest;
@@ -650,12 +754,13 @@ export function settleYear(s) {
   drift('mind', back, s.coping === 'seek' ? 'seek' : 'back');
 
   // 明年的薪資與物價
-  const g = ind.growth + ((a.career - 50) / 50) * 0.02 + ageGrowth(s) + (perk(s, 'study', 5) ? 0.01 : 0) + ind.vol * gauss(s);
+  const g = ind.growth + ((a.career - 50) / 50) * 0.02 + ageGrowth(s) + (perk(s, 'study', 5) ? 0.01 : 0) + ind.vol * gauss(s) + (EV.growth || 0);
   s.income *= 1 + g;
   if (s.spouse > 0) s.spouse *= 1 + (X.spouseGrowth ?? X.inflation);
-  s.expense *= 1 + X.inflation;
+  const inflNow = X.inflation + (EV.expensePct || 0);
+  s.expense *= 1 + inflNow;
   N.push({ text: T.nextIncome(pct(g), fmt(s.income)), tone: g >= 0 ? 'up' : 'down' });
-  N.push({ text: T.inflation(pct(X.inflation), fmt(s.expense)), tone: 'info' });
+  N.push({ text: T.inflation(pct(inflNow), fmt(s.expense)), tone: 'info' });
 
   // 生活水準跟著收入升級:收入的實質漲幅,有一部分會變成新的固定開銷
   const rise = s.income / (s.incomeRef ?? s.income) - 1 - X.inflation;
@@ -703,7 +808,8 @@ export function choose(s, idx) {
   s.pending = null;
   s.history.push({ age, title: card.title, choice: ch.label, net: settle.net, liquid: s.cash + s.invest, attrs: { ...s.attrs } });
   const unlocked = checkAchievements(s);
-  s.last = { title: card.title, type: card.type, choice: ch.label, outcome, settle, before, unlocked };
+  const goalsDone = checkGoals(s);
+  s.last = { title: card.title, type: card.type, choice: ch.label, outcome, settle, before, unlocked, goalsDone };
   return s.last;
 }
 

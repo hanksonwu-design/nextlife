@@ -456,3 +456,25 @@ table.ftable th:first-child, table.ftable td:first-child { text-align: left; whi
 .herotitle h1 { width: 100%; text-shadow: none; line-height: 0; }
 .herotitle { top: calc(env(safe-area-inset-top) + 3.5%); gap: 4px; }
 .herotitle .wordmark { display: block; width: 80%; max-width: 380px; height: auto; margin: 0 auto; filter: drop-shadow(0 6px 10px rgba(0, 50, 120, 0.28)); }
+
+/* 年度大事 */
+.eventbar { display: grid; gap: 2px; border-color: var(--sky); background: color-mix(in srgb, var(--sky) 12%, var(--panel)); }
+.eventbar b { font-size: 19px; font-weight: 900; }
+.eventbar.calm { border-color: var(--line); background: var(--panel); }
+.yearintro em { font-style: normal; font-weight: 800; font-size: 22px; margin-top: 8px; background: #fff; color: var(--sky-deep); padding: 4px 16px; border-radius: 99px; justify-self: center; }
+/* 人生目標 */
+ul.goals { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+ul.goals li { display: grid; gap: 4px; }
+ul.goals li.done .row { color: var(--up); font-weight: 700; }
+ul.goals .stagetrack { height: 8px; }
+/* 兩顆骰子二選一 */
+.dicepair { display: flex; gap: 12px; justify-content: center; }
+.dicepair .dice { width: 64px; height: 64px; padding: 10px; transition: opacity 0.25s, transform 0.25s; }
+.dice.dim { opacity: 0.22; transform: scale(0.82); }
+.tile.cand { outline: 3px solid var(--gold); outline-offset: 1px; z-index: 1; animation: candpulse 0.9s ease-in-out infinite alternate; }
+@keyframes candpulse { from { transform: scale(1); } to { transform: scale(1.12); } }
+.pairpick { display: grid; gap: 8px; }
+.pairbtn { display: flex; align-items: center; gap: 14px; text-align: left; }
+.pairbtn .dice { width: 46px; height: 46px; padding: 7px; border-radius: 12px; box-shadow: 0 3px 0 var(--edge); flex: none; }
+@media (prefers-reduced-motion: reduce) { .tile.cand { animation: none; } }
+.eventbar .badge { justify-self: start; }

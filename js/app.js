@@ -827,7 +827,9 @@ const VIEWS = {
     <div class="row"><h3>${U.common.yearHead(s.age, s.turn + 1, E.TOTAL_TURNS)}</h3><span class="num"><span class="small muted">${U.common.netWorth}</span> <b>${E.fmt(E.netWorth(s))}</b></span></div>
     <h2>${L.title}</h2>
     <p class="muted small">${L.intro(E.PLAN_MAX)}</p>
+    ${eventBar()}
     <section class="panel stack">${bars()}${stageBar()}</section>
+    ${goalsPanel()}
     <div class="stack">${cards}</div>
     <section class="panel plansum" id="plansum" aria-live="polite">${planSummary()}</section>
     <button class="btn primary" id="planbtn" data-act="planDone">${planPicks.length ? L.confirmGo : L.confirmRest}</button>`;
@@ -837,9 +839,12 @@ const VIEWS = {
   board() {
     const pos = s.pos ?? 0;
     const [x, y] = tileXY(pos);
+    // 已經擲出兩顆、還沒選的時候(包含中途關掉再回來),直接顯示兩個選項
+    const pair = s.pair && s.pair.turn === s.turn && !s.pending && !s.last ? s.pair : null;
+    const cand = pair ? pair.options.map((o) => o.to) : [];
     const tiles = E.BOARD.map((kind, i) => {
       const [c, r] = tileXY(i);
-      return `<span class="tile k-${kind}" data-i="${i}" style="grid-column:${c};grid-row:${r}" title="${T.tiles[kind].name}">${T.tiles[kind].glyph}</span>`;
+      return `<span class="tile k-${kind} ${cand.includes(i) ? 'cand' : ''}" data-i="${i}" style="grid-column:${c};grid-row:${r}" title="${T.tiles[kind].name}">${T.tiles[kind].glyph}</span>`;
     }).join('');
     const legend = ['chance', 'crisis', 'choice', 'coin', 'rest', 'fate']
       .map((k) => `<span><i class="tile k-${k}">${T.tiles[k].glyph}</i>${T.tiles[k].name}</span>`)
@@ -850,14 +855,15 @@ const VIEWS = {
       <div class="board">
         ${tiles}
         <div class="center">
-          <div class="dice" id="dice" aria-hidden="true">${pips(1)}</div>
-          <p id="boardmsg" class="small muted" role="status">${U.board.prompt}</p>
+          <div class="dicepair" aria-hidden="true"><div class="dice" id="dice">${pips(pair ? pair.dice[0] : 1)}</div><div class="dice" id="dice2">${pips(pair ? pair.dice[1] : 1)}</div></div>
+          <p id="boardmsg" class="small muted" role="status">${pair ? U.vary.pairPrompt : U.board.prompt}</p>
         </div>
         <span class="token" id="token" style="--x:${x};--y:${y};background-image:url(img/token-${avatar()}.png)" role="img" aria-label="${U.board.tokenLabel}"></span>
       </div>
     </section>
+    <div id="rollarea" class="stack">${pair ? pairButtons(pair) : `<button class="btn primary" id="rollbtn" data-act="roll">${U.board.roll}</button>`}</div>
+    ${eventBar()}
     <div id="boardnotes">${s.plan && s.plan.turn === s.turn ? `<section class="panel stack"><h3>${U.plan.done}</h3>${lineList(s.plan.lines)}</section>` : ''}</div>
-    <button class="btn primary" id="rollbtn" data-act="roll">${U.board.roll}</button>
     <div class="legend small muted">${legend}</div>`;
   },
 
@@ -903,13 +909,21 @@ const VIEWS = {
     const ach = (r.unlocked || [])
       .map((id, i) => `<section class="panel ach pop" style="--i:${i + 2}"><span class="badge">${U.result.achUnlocked}</span><b>${ACH[id].name}</b><span class="small muted">${ACH[id].desc}</span></section>`)
       .join('');
+    const goalHit = (r.goalsDone || [])
+      .map((id, i) => {
+        const g = (s.goals || []).find((x) => x.id === id);
+        return `<section class="panel ach pop" style="--i:${i + 2}"><span class="badge">${U.vary.goalHit}</span><b>${T.goals[id](id === 'net' || id === 'income' ? E.fmt(g.target) : g.target)}</b><span class="small muted">${U.vary.goalHitReward}</span></section>`;
+      }).join('');
+    const fb = s.forecast && s.forecast.band ? s.forecast.band[r.before.turn] : null;
+    const rank = fb ? (st.net >= fb.p90 ? 'top' : st.net >= fb.p50 ? 'high' : st.net >= fb.p10 ? 'low' : 'bottom') : null;
     return `${statusPanel(r.before)}
     <section class="panel stack card t-${r.type}">
       <span class="badge">${T.types[r.type]} · ${r.title}</span>
       <h2>${U.result.youChose(r.choice)}</h2>
       ${r.outcome.length ? lineList(r.outcome) : `<p class="muted">${U.result.noEffect}</p>`}
     </section>
-    ${ach}
+    ${ach}${goalHit}
+    ${rank ? `<section class="panel stack"><h3>${U.vary.rankTitle}</h3><p class="${rank === 'top' || rank === 'high' ? 'up' : rank === 'bottom' ? 'down' : ''}"><b>${U.vary.rank[rank]}</b></p></section>` : ''}
     <section class="panel stack">
       <div class="row"><h3>${U.result.settle}</h3><span class="num ${sum >= 0 ? 'up' : 'down'}"><b>${sum >= 0 ? '+' : ''}${E.fmt(sum)}</b></span></div>
       <details>
@@ -964,6 +978,7 @@ const VIEWS = {
       <h3>${F.probsTitle}</h3>
       ${probList(f, net)}
     </section>
+    ${goalsPanel()}
     ${advicePanel()}
     <section class="panel stack">
       <div class="row"><h3>${U.meta.freshTitle}</h3><span class="small muted num">${U.meta.summary(meta.runs, meta.best)}</span></div>
@@ -1001,6 +1016,36 @@ const VIEWS = {
 };
 
 // 目前勾選的計畫合計:時間用了幾格、花多少錢、會不會太滿
+// 今年的大事:名稱和這一年的效果
+function eventBar() {
+  const ev = s.event && s.event.turn === s.turn ? T.events[s.event.id] : null;
+  if (!ev) return '';
+  return `<section class="panel eventbar ${s.event.id === 'calm' ? 'calm' : ''}"><span class="badge">${U.vary.eventTitle}</span><b>${ev[0]}</b><span class="small muted">${ev[1]}</span></section>`;
+}
+// 這一局的三個目標和進度
+function goalsPanel() {
+  const gs = E.goalStatus(s);
+  if (!gs.length) return '';
+  const V = U.vary;
+  return `<section class="panel stack">
+    <div class="row"><h3>${V.goalsTitle}</h3><span class="small muted num">${gs.filter((g) => g.done != null).length} / ${gs.length}</span></div>
+    <ul class="goals">${gs.map((g) => `<li class="${g.done != null ? 'done' : ''}">
+      <div class="row"><span>${T.goals[g.id](g.id === 'net' || g.id === 'income' ? E.fmt(g.target) : g.target)}</span><span class="small num">${g.done != null ? V.goalDone : Math.round(g.pct * 100) + '%'}</span></div>
+      <div class="stagetrack"><span style="width:${Math.round(g.pct * 100)}%"></span></div></li>`).join('')}</ul>
+    <p class="small muted">${V.goalReward}</p>
+  </section>`;
+}
+// 擲出兩顆骰子後的選擇按鈕
+function pairButtons(pair) {
+  const V = U.vary;
+  const same = pair.dice[0] === pair.dice[1];
+  const btn = (o, i) => `<button class="btn pairbtn pop" style="--i:${i}" data-act="rollPick" data-i="${i}">
+    <span class="dice">${pips(o.d)}</span>
+    <span><b>${V.pairOption(o.d, T.tiles[o.kind].name)}</b><span class="hint">${T.tiles[o.kind].glyph} ${o.lap ? V.pairLap : ''}</span></span></button>`;
+  return `<p class="small muted" style="text-align:center">${same ? V.pairSame : V.pairPrompt}</p>
+    <div class="pairpick">${same ? btn(pair.options[0], 0) : pair.options.map(btn).join('')}</div>`;
+}
+
 // 年度計畫裡的一張習慣卡:上面是勾選的大按鈕,下面是三種做法
 function habitCard(id, i, anim = true) {
   const L = U.plan;
@@ -1378,13 +1423,13 @@ const pips = (n) => Array.from({ length: 9 }, (_, i) => `<i class="${PIPS[n].inc
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 骰子滾動 → 棋子一格一格跳 → 顯示走到哪一格
-async function playRoll(r) {
+async function playRoll(r, picked = false) {
   const dice = document.getElementById('dice');
   const token = document.getElementById('token');
   const msg = document.getElementById('boardmsg');
   const btn = document.getElementById('rollbtn');
   btn.disabled = true;
-  if (!reduced) {
+  if (!reduced && !picked) {
     dice.classList.add('rolling');
     for (let k = 0; k < 9; k++) {
       dice.innerHTML = pips(1 + Math.floor(Math.random() * 6));
@@ -1393,7 +1438,7 @@ async function playRoll(r) {
     }
     dice.classList.remove('rolling');
   }
-  dice.innerHTML = pips(r.d);
+  if (!picked) dice.innerHTML = pips(r.d);
   msg.textContent = U.board.rolled(r.d);
   buzz(20);
   for (let k = 1; k <= r.d; k++) {
@@ -1446,9 +1491,11 @@ function yearIntro() {
   if (reduced) return;
   const o = document.createElement('div');
   o.className = 'yearintro';
-  o.innerHTML = `<div><span>${U.intro.year(s.turn + 1)}</span><b>${U.intro.age(s.age)}</b></div>`;
+  const ev = s.event && s.event.turn === s.turn && s.event.id !== 'calm' ? T.events[s.event.id] : null;
+  o.innerHTML = `<div><span>${U.intro.year(s.turn + 1)}</span><b>${U.intro.age(s.age)}</b>${ev ? `<em>${ev[0]}</em>` : ''}</div>`;
+  if (ev) o.style.animationDuration = '1.7s';
   document.body.appendChild(o);
-  setTimeout(() => o.remove(), 1150);
+  setTimeout(() => o.remove(), ev ? 1700 : 1150);
 }
 
 // ---------- 操作 ----------
@@ -1460,6 +1507,7 @@ function beginTurn() {
     view = 'quiz';
   } else {
     if (!s.pending && !s.last) {
+      E.yearEvent(s); // 先抽今年的大事,排計畫時才看得到
       if (E.needsPlan(s)) {
         planPicks = [];
         view = 'plan';
@@ -1598,6 +1646,7 @@ const ACTIONS = {
       const seed = (Date.now() ^ (Math.random() * 0x7fffffff)) | 0;
       s = E.newGame(profile, seed);
       s.forecast = E.forecastOf(E.simulate(profile, 1000, 2024));
+      E.setNetGoal(s, s.forecast.p50);
       quiz = null;
       view = 'forecast';
       save();
@@ -1648,10 +1697,39 @@ const ACTIONS = {
     view = 'board';
     render();
   },
-  roll() {
-    const r = E.rollTurn(s);
+  // 擲兩顆骰子,再讓玩家挑一顆走
+  async roll() {
+    const pair = E.rollPair(s);
+    save(); // 先存檔:就算動畫播到一半關掉,回來也會看到同樣的兩顆
+    const btn = document.getElementById('rollbtn');
+    const d1 = document.getElementById('dice');
+    const d2 = document.getElementById('dice2');
+    if (btn) btn.disabled = true;
+    if (!reduced && d1 && d2) {
+      d1.classList.add('rolling');
+      d2.classList.add('rolling');
+      for (let k = 0; k < 9; k++) {
+        d1.innerHTML = pips(1 + Math.floor(Math.random() * 6));
+        d2.innerHTML = pips(1 + Math.floor(Math.random() * 6));
+        SND.sfx('dice');
+        await sleep(80);
+      }
+    }
+    buzz(20);
+    if (view === 'board') render();
+    void pair;
+  },
+  rollPick({ i }) {
+    const r = E.rollTurn(s, Number(i));
     save(); // 先存檔:就算動畫播到一半關掉,回來也會直接看到這張事件卡
-    playRoll(r);
+    document.getElementById('rollarea').innerHTML = `<button class="btn primary" id="rollbtn" disabled>${U.board.roll}</button>`;
+    app.querySelectorAll('.tile.cand').forEach((el) => el.classList.remove('cand'));
+    const keep = document.getElementById(Number(i) === 0 ? 'dice' : 'dice2');
+    const drop = document.getElementById(Number(i) === 0 ? 'dice2' : 'dice');
+    if (drop) drop.classList.add('dim');
+    if (keep) keep.innerHTML = pips(r.d);
+    SND.sfx('confirm');
+    playRoll(r, true);
   },
   flip() { SND.sfx('flip'); view = 'play'; render(); },
   choose({ i }) {
@@ -1764,7 +1842,7 @@ app.addEventListener('click', (ev) => {
   ACTIONS[b.dataset.act](b.dataset);
 });
 // 這些操作自己會出聲,不再加一般的點擊聲
-const OWN_SOUND = new Set(['roll', 'flip', 'choose', 'pick', 'planStyle', 'answer', 'planDone', 'next', 'quizDone', 'reveal', 'reroll']);
+const OWN_SOUND = new Set(['roll', 'rollPick', 'flip', 'choose', 'pick', 'planStyle', 'answer', 'planDone', 'next', 'quizDone', 'reveal', 'reroll']);
 
 // 聲音開關:固定在畫面右下角,按一下依序切換「音樂和音效 → 只有音效 → 靜音」
 const audioBtn = document.createElement('button');
